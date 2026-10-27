@@ -1,0 +1,871 @@
+// AI Creator Farm — relational data model.
+// Conventions: UUID primary keys, UTC timestamptz columns, snake_case table/column names,
+// money stored as signed BigInt micro-units (1 EUR = 1_000_000 micros), large files in object storage only.
+// Status transitions are validated in src/lib/state-machines.ts; append-only tables are protected
+// by triggers in the migration SQL (cost_ledger, audit_logs).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────── Enums ───────────────────────────────
+
+enum UserRole {
+  OWNER
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+enum CreatorStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum AutonomyMode {
+  MANUAL
+  ASSISTED
+  CONTROLLED_AUTONOMY
+}
+
+enum CharacterProfileStatus {
+  DRAFT
+  APPROVED
+  SUPERSEDED
+}
+
+enum Platform {
+  INSTAGRAM
+  TIKTOK
+  YOUTUBE
+}
+
+enum SocialAccountStatus {
+  NOT_CONNECTED
+  CONNECTED
+  TOKEN_EXPIRED
+  INSUFFICIENT_SCOPE
+  REVOKED
+  ERROR
+}
+
+enum PromptKind {
+  IDEATION
+  CREATOR_WIZARD
+  SCRIPT
+  IMAGE
+  VIDEO
+  VOICEOVER
+  CAPTION
+  QUALITY_RULES
+  SAFETY_RULES
+}
+
+enum PromptScope {
+  GLOBAL
+  CREATOR
+  CAMPAIGN
+}
+
+enum PromptVersionStatus {
+  DRAFT
+  PUBLISHED
+  DEPRECATED
+}
+
+enum ProviderCapability {
+  TEXT
+  IMAGE
+  VIDEO
+  SPEECH
+  LIPSYNC
+  MODERATION
+}
+
+enum ProviderStatus {
+  NOT_CONFIGURED
+  ACTIVE
+  DEGRADED
+  DISABLED
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum ContentFormat {
+  IMAGE_POST
+  CAROUSEL
+  SHORT_VIDEO
+  TALKING_HEAD
+  STORY
+}
+
+enum ContentStatus {
+  IDEA
+  BRIEFED
+  SCRIPTED
+  PROMPTED
+  GENERATING
+  QC_REVIEW
+  READY
+  APPROVED
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  REJECTED
+  ARCHIVED
+}
+
+enum GenerationKind {
+  TEXT
+  IMAGE
+  VIDEO
+  SPEECH
+  LIPSYNC
+  MODERATION
+  MEDIA_PROCESSING
+}
+
+enum GenerationJobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  BLOCKED_BUDGET
+  BLOCKED_POLICY
+  DEAD_LETTER
+}
+
+enum MediaKind {
+  IMAGE
+  VIDEO
+  AUDIO
+  SUBTITLE
+}
+
+enum MediaSource {
+  GENERATED
+  UPLOADED
+  DERIVED
+}
+
+enum MediaStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+enum ApprovalSubject {
+  CONTENT_ITEM
+  MEDIA_ASSET
+  CHARACTER_PROFILE
+  PROMPT_VERSION
+  SOCIAL_ACCOUNT_LINK
+  BUDGET_INCREASE
+  SECURITY_CHANGE
+}
+
+enum ApprovalDecision {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PublishingStatus {
+  SCHEDULED
+  QUEUED
+  PUBLISHING
+  AWAITING_CONFIRMATION
+  PUBLISHED
+  FAILED
+  NEEDS_MANUAL_ACTION
+  CANCELLED
+}
+
+enum CostEntryType {
+  CHARGE
+  ADJUSTMENT
+}
+
+enum CostBasis {
+  MEASURED
+  PROVIDER_REPORTED
+  ESTIMATED
+}
+
+enum CostCategory {
+  TOKENS
+  IMAGE
+  VIDEO_SECONDS
+  AUDIO
+  STORAGE
+  EGRESS
+  HOSTING
+  OTHER
+}
+
+enum ReservationStatus {
+  HELD
+  CONSUMED
+  RELEASED
+}
+
+enum BudgetScope {
+  GLOBAL
+  CREATOR
+  CAMPAIGN
+  PROVIDER
+}
+
+enum BudgetPeriod {
+  DAY
+  MONTH
+}
+
+enum PolicyScope {
+  GLOBAL
+  CREATOR
+  CAMPAIGN
+}
+
+enum ControlScope {
+  ALL_GENERATION
+  ALL_PUBLISHING
+  CREATOR
+  CAMPAIGN
+  PROVIDER
+}
+
+enum DataOrigin {
+  MEASURED
+  DEMO
+}
+
+enum ActorType {
+  USER
+  SYSTEM
+  AGENT
+}
+
+enum NotificationSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+// ─────────────────────────────── Identity ───────────────────────────────
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique
+  name         String
+  passwordHash String    @map("password_hash")
+  role         UserRole  @default(VIEWER)
+  disabledAt   DateTime? @map("disabled_at") @db.Timestamptz(3)
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  creatorsCreated  Creator[]
+  approvalsDecided Approval[]     @relation("ApprovalDecidedBy")
+  notifications    Notification[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────── Creators ───────────────────────────────
+
+model Creator {
+  id                String        @id @default(uuid()) @db.Uuid
+  slug              String        @unique
+  name              String
+  niche             String
+  targetAudience    String        @map("target_audience")
+  language          String // BCP-47, e.g. "nl-NL"
+  targetRegions     String[]      @map("target_regions") // ISO-3166 codes
+  personality       String
+  toneOfVoice       String        @map("tone_of_voice")
+  backstory         String // always fictional
+  contentPillars    Json          @default("[]") @map("content_pillars")
+  contentFormats    ContentFormat[] @map("content_formats")
+  promptSettings    Json          @default("{}") @map("prompt_settings")
+  publishingSchedule Json         @default("{}") @map("publishing_schedule")
+  timezone          String        @default("Europe/Amsterdam")
+  autonomyMode      AutonomyMode  @default(CONTROLLED_AUTONOMY) @map("autonomy_mode")
+  status            CreatorStatus @default(DRAFT)
+  isDemo            Boolean       @default(false) @map("is_demo")
+  createdById       String?       @map("created_by_id") @db.Uuid
+  archivedAt        DateTime?     @map("archived_at") @db.Timestamptz(3)
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy         User?              @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  characterProfiles CharacterProfile[]
+  socialAccounts    SocialAccount[]
+  promptTemplates   PromptTemplate[]
+  campaigns         CampaignCreator[]
+  contentItems      ContentItem[]
+  generationJobs    GenerationJob[]
+  mediaAssets       MediaAsset[]
+  costEntries       CostLedger[]
+  reservations      BudgetReservation[]
+
+  @@index([status])
+  @@map("creators")
+}
+
+model CharacterProfile {
+  id                  String                 @id @default(uuid()) @db.Uuid
+  creatorId           String                 @map("creator_id") @db.Uuid
+  version             Int
+  status              CharacterProfileStatus @default(DRAFT)
+  // Structured appearance: age range, build, hair, eyes, skin, distinguishing features, wardrobe.
+  appearance          Json                   @default("{}")
+  identityPrompt      String                 @map("identity_prompt")
+  negativePrompt      String                 @default("") @map("negative_prompt")
+  // Consistency techniques: reference conditioning weights, seeds, LoRA/fine-tune ids, face-embedding ids.
+  consistencyStrategy Json                   @default("{}") @map("consistency_strategy")
+  // Confirmation that the identity is synthetic and not modelled on a real person without consent.
+  likenessAttestation String?                @map("likeness_attestation")
+  approvedById        String?                @map("approved_by_id") @db.Uuid
+  approvedAt          DateTime?              @map("approved_at") @db.Timestamptz(3)
+  createdAt           DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  creator    Creator              @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  references CharacterReference[]
+
+  @@unique([creatorId, version])
+  @@index([creatorId, status])
+  @@map("character_profiles")
+}
+
+model CharacterReference {
+  id                 String   @id @default(uuid()) @db.Uuid
+  characterProfileId String   @map("character_profile_id") @db.Uuid
+  mediaAssetId       String   @map("media_asset_id") @db.Uuid
+  label              String // e.g. "front-neutral", "three-quarter-left"
+  isCanonical        Boolean  @default(false) @map("is_canonical")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  characterProfile CharacterProfile @relation(fields: [characterProfileId], references: [id], onDelete: Cascade)
+  mediaAsset       MediaAsset       @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict)
+
+  @@unique([characterProfileId, mediaAssetId])
+  @@map("character_references")
+}
+
+model SocialAccount {
+  id                String              @id @default(uuid()) @db.Uuid
+  creatorId         String              @map("creator_id") @db.Uuid
+  platform          Platform
+  externalAccountId String?             @map("external_account_id")
+  handle            String
+  accountType       String?             @map("account_type") // e.g. "instagram_business", "youtube_channel"
+  status            SocialAccountStatus @default(NOT_CONNECTED)
+  grantedScopes     String[]            @map("granted_scopes")
+  capabilities      Json                @default("{}") // verified per-content-type publishing abilities
+  // Reference into the secrets manager (e.g. "aws-sm:creatorfarm/social/<id>"); tokens never live in this table.
+  credentialRef     String?             @map("credential_ref")
+  tokenExpiresAt    DateTime?           @map("token_expires_at") @db.Timestamptz(3)
+  lastVerifiedAt    DateTime?           @map("last_verified_at") @db.Timestamptz(3)
+  maxPostsPerDay    Int                 @default(3) @map("max_posts_per_day")
+  isDemo            Boolean             @default(false) @map("is_demo")
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  creator            Creator              @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  publishingJobs     PublishingJob[]
+  analyticsSnapshots AnalyticsSnapshot[]
+
+  @@unique([platform, externalAccountId])
+  @@unique([platform, handle])
+  @@index([creatorId])
+  @@map("social_accounts")
+}
+
+// ─────────────────────────────── Prompts ───────────────────────────────
+
+model PromptTemplate {
+  id          String      @id @default(uuid()) @db.Uuid
+  key         String      @unique // stable identifier, e.g. "image.lifestyle.default"
+  name        String
+  kind        PromptKind
+  scope       PromptScope @default(GLOBAL)
+  creatorId   String?     @map("creator_id") @db.Uuid
+  campaignId  String?     @map("campaign_id") @db.Uuid
+  description String      @default("")
+  archivedAt  DateTime?   @map("archived_at") @db.Timestamptz(3)
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  creator  Creator?        @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  campaign Campaign?       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  versions PromptVersion[]
+
+  @@index([kind, scope])
+  @@map("prompt_templates")
+}
+
+// Published versions are immutable; generation jobs pin a version id so edits never change past output.
+model PromptVersion {
+  id              String              @id @default(uuid()) @db.Uuid
+  templateId      String              @map("template_id") @db.Uuid
+  version         Int
+  status          PromptVersionStatus @default(DRAFT)
+  body            String
+  variablesSchema Json                @default("{}") @map("variables_schema")
+  defaultParams   Json                @default("{}") @map("default_params")
+  changelog       String              @default("")
+  createdById     String?             @map("created_by_id") @db.Uuid
+  publishedAt     DateTime?           @map("published_at") @db.Timestamptz(3)
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  template       PromptTemplate  @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  generationJobs GenerationJob[]
+
+  @@unique([templateId, version])
+  @@map("prompt_versions")
+}
+
+// ─────────────────────────────── Providers ───────────────────────────────
+
+model AiProvider {
+  id            String               @id @default(uuid()) @db.Uuid
+  key           String               @unique // matches an adapter in src/server/providers
+  displayName   String               @map("display_name")
+  capabilities  ProviderCapability[]
+  status        ProviderStatus       @default(NOT_CONFIGURED)
+  isMock        Boolean              @default(false) @map("is_mock")
+  credentialRef String?              @map("credential_ref")
+  config        Json                 @default("{}") // model ids, concurrency, timeouts
+  // Price table per unit; a missing price blocks paid execution instead of being treated as zero.
+  pricing       Json                 @default("{}")
+  priority      Int                  @default(100) // lower = preferred
+  createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  generationJobs GenerationJob[]
+  costEntries    CostLedger[]
+  reservations   BudgetReservation[]
+
+  @@map("ai_providers")
+}
+
+// ─────────────────────────────── Campaigns & content ───────────────────────────────
+
+model Campaign {
+  id        String         @id @default(uuid()) @db.Uuid
+  name      String
+  objective String         @default("")
+  brief     String         @default("")
+  status    CampaignStatus @default(DRAFT)
+  startsAt  DateTime?      @map("starts_at") @db.Timestamptz(3)
+  endsAt    DateTime?      @map("ends_at") @db.Timestamptz(3)
+  isDemo    Boolean        @default(false) @map("is_demo")
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  creators        CampaignCreator[]
+  contentItems    ContentItem[]
+  promptTemplates PromptTemplate[]
+  costEntries     CostLedger[]
+  reservations    BudgetReservation[]
+
+  @@index([status])
+  @@map("campaigns")
+}
+
+model CampaignCreator {
+  campaignId String @map("campaign_id") @db.Uuid
+  creatorId  String @map("creator_id") @db.Uuid
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  creator  Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, creatorId])
+  @@index([creatorId])
+  @@map("campaign_creators")
+}
+
+model ContentItem {
+  id              String        @id @default(uuid()) @db.Uuid
+  creatorId       String        @map("creator_id") @db.Uuid
+  campaignId      String?       @map("campaign_id") @db.Uuid
+  title           String
+  format          ContentFormat
+  status          ContentStatus @default(IDEA)
+  idea            String        @default("")
+  brief           Json          @default("{}")
+  script          Json          @default("{}")
+  caption         String        @default("")
+  hashtags        String[]
+  aiDisclosure    Boolean       @default(true) @map("ai_disclosure")
+  maxGenerations  Int           @default(6) @map("max_generations")
+  generationCount Int           @default(0) @map("generation_count")
+  isDemo          Boolean       @default(false) @map("is_demo")
+  createdById     String?       @map("created_by_id") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  creator            Creator             @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  campaign           Campaign?           @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  scenes             VideoScene[]
+  generationJobs     GenerationJob[]
+  mediaAssets        MediaAsset[]
+  publishingJobs     PublishingJob[]
+  costEntries        CostLedger[]
+  analyticsSnapshots AnalyticsSnapshot[]
+  reservations       BudgetReservation[]
+
+  @@index([creatorId, status])
+  @@index([campaignId])
+  @@index([status, updatedAt])
+  @@map("content_items")
+}
+
+// Storyboard scene of a video content item; every generated take is a separate media asset.
+model VideoScene {
+  id               String   @id @default(uuid()) @db.Uuid
+  contentItemId    String   @map("content_item_id") @db.Uuid
+  position         Int
+  prompt           String
+  action           String   @default("")
+  durationMs       Int      @map("duration_ms")
+  dialogue         String   @default("")
+  audioNotes       String   @default("") @map("audio_notes")
+  referenceAssetId String?  @map("reference_asset_id") @db.Uuid
+  approvedAssetId  String?  @map("approved_asset_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  contentItem    ContentItem     @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+  generationJobs GenerationJob[]
+
+  @@unique([contentItemId, position])
+  @@map("video_scenes")
+}
+
+// ─────────────────────────────── Generation & media ───────────────────────────────
+
+model GenerationJob {
+  id                  String              @id @default(uuid()) @db.Uuid
+  creatorId           String              @map("creator_id") @db.Uuid
+  contentItemId       String?             @map("content_item_id") @db.Uuid
+  sceneId             String?             @map("scene_id") @db.Uuid
+  providerId          String              @map("provider_id") @db.Uuid
+  promptVersionId     String?             @map("prompt_version_id") @db.Uuid
+  kind                GenerationKind
+  status              GenerationJobStatus @default(QUEUED)
+  idempotencyKey      String              @unique @map("idempotency_key")
+  renderedPrompt      String              @default("") @map("rendered_prompt")
+  params              Json                @default("{}")
+  providerJobId       String?             @map("provider_job_id")
+  attempt             Int                 @default(0)
+  maxAttempts         Int                 @default(3) @map("max_attempts")
+  estimatedCostMicros BigInt?             @map("estimated_cost_micros")
+  actualCostMicros    BigInt?             @map("actual_cost_micros")
+  error               Json?
+  isMock              Boolean             @default(false) @map("is_mock")
+  startedAt           DateTime?           @map("started_at") @db.Timestamptz(3)
+  finishedAt          DateTime?           @map("finished_at") @db.Timestamptz(3)
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  creator       Creator             @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  contentItem   ContentItem?        @relation(fields: [contentItemId], references: [id], onDelete: SetNull)
+  scene         VideoScene?         @relation(fields: [sceneId], references: [id], onDelete: SetNull)
+  provider      AiProvider          @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  promptVersion PromptVersion?      @relation(fields: [promptVersionId], references: [id], onDelete: Restrict)
+  mediaAssets   MediaAsset[]
+  costEntries   CostLedger[]
+  reservations  BudgetReservation[]
+
+  @@index([status, updatedAt])
+  @@index([contentItemId])
+  @@index([creatorId, createdAt])
+  @@map("generation_jobs")
+}
+
+model MediaAsset {
+  id              String      @id @default(uuid()) @db.Uuid
+  creatorId       String?     @map("creator_id") @db.Uuid
+  contentItemId   String?     @map("content_item_id") @db.Uuid
+  generationJobId String?     @map("generation_job_id") @db.Uuid
+  kind            MediaKind
+  source          MediaSource
+  status          MediaStatus @default(PENDING_REVIEW)
+  storageKey      String      @unique @map("storage_key")
+  mimeType        String      @map("mime_type")
+  sizeBytes       BigInt      @map("size_bytes")
+  checksumSha256  String      @map("checksum_sha256")
+  width           Int?
+  height          Int?
+  durationMs      Int?        @map("duration_ms")
+  providerKey     String?     @map("provider_key")
+  modelVersion    String?     @map("model_version")
+  promptSnapshot  String?     @map("prompt_snapshot")
+  paramsSnapshot  Json?       @map("params_snapshot")
+  qualityScore    Float?      @map("quality_score")
+  qualityReport   Json?       @map("quality_report")
+  // Licence / consent note for uploaded material (references, voices).
+  rightsNote      String?     @map("rights_note")
+  isMock          Boolean     @default(false) @map("is_mock")
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  creator             Creator?             @relation(fields: [creatorId], references: [id], onDelete: SetNull)
+  contentItem         ContentItem?         @relation(fields: [contentItemId], references: [id], onDelete: SetNull)
+  generationJob       GenerationJob?       @relation(fields: [generationJobId], references: [id], onDelete: SetNull)
+  characterReferences CharacterReference[]
+
+  @@index([creatorId, kind, status])
+  @@index([contentItemId])
+  @@index([checksumSha256])
+  @@map("media_assets")
+}
+
+model Approval {
+  id            String           @id @default(uuid()) @db.Uuid
+  subjectType   ApprovalSubject  @map("subject_type")
+  subjectId     String           @map("subject_id") @db.Uuid
+  decision      ApprovalDecision @default(PENDING)
+  requestedBy   ActorType        @map("requested_by")
+  requestedById String?          @map("requested_by_id") @db.Uuid
+  payload       Json             @default("{}") // e.g. proposed new budget limit
+  decidedById   String?          @map("decided_by_id") @db.Uuid
+  reason        String?
+  decidedAt     DateTime?        @map("decided_at") @db.Timestamptz(3)
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  decidedBy User? @relation("ApprovalDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([subjectType, subjectId])
+  @@index([decision, createdAt])
+  @@map("approvals")
+}
+
+// ─────────────────────────────── Publishing ───────────────────────────────
+
+model PublishingJob {
+  id              String           @id @default(uuid()) @db.Uuid
+  contentItemId   String           @map("content_item_id") @db.Uuid
+  socialAccountId String           @map("social_account_id") @db.Uuid
+  platform        Platform
+  scheduledFor    DateTime         @map("scheduled_for") @db.Timestamptz(3)
+  status          PublishingStatus @default(SCHEDULED)
+  idempotencyKey  String           @unique @map("idempotency_key")
+  externalPostId  String?          @map("external_post_id")
+  externalUrl     String?          @map("external_url")
+  attempt         Int              @default(0)
+  lastError       Json?            @map("last_error")
+  isMock          Boolean          @default(false) @map("is_mock")
+  submittedAt     DateTime?        @map("submitted_at") @db.Timestamptz(3)
+  confirmedAt     DateTime?        @map("confirmed_at") @db.Timestamptz(3)
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  contentItem        ContentItem         @relation(fields: [contentItemId], references: [id], onDelete: Restrict)
+  socialAccount      SocialAccount       @relation(fields: [socialAccountId], references: [id], onDelete: Restrict)
+  analyticsSnapshots AnalyticsSnapshot[]
+
+  // A partial unique index (migration SQL) prevents two non-cancelled jobs for the same item + account.
+  @@index([status, scheduledFor])
+  @@index([socialAccountId, scheduledFor])
+  @@map("publishing_jobs")
+}
+
+// ─────────────────────────────── Costs & budgets ───────────────────────────────
+
+// Append-only journal of actual (or explicitly estimated) costs. UPDATE/DELETE are blocked by a trigger.
+model CostLedger {
+  id              String        @id @default(uuid()) @db.Uuid
+  occurredAt      DateTime      @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  entryType       CostEntryType @map("entry_type")
+  category        CostCategory
+  basis           CostBasis
+  amountMicros    BigInt        @map("amount_micros")
+  currency        String        @default("EUR") @db.Char(3)
+  units           Decimal?      @db.Decimal(20, 6)
+  unitType        String?       @map("unit_type") // "input_token", "image", "video_second", ...
+  uncertaintyNote String?       @map("uncertainty_note")
+  providerId      String?       @map("provider_id") @db.Uuid
+  creatorId       String?       @map("creator_id") @db.Uuid
+  campaignId      String?       @map("campaign_id") @db.Uuid
+  contentItemId   String?       @map("content_item_id") @db.Uuid
+  generationJobId String?       @map("generation_job_id") @db.Uuid
+  idempotencyKey  String        @unique @map("idempotency_key")
+  isMock          Boolean       @default(false) @map("is_mock")
+  metadata        Json          @default("{}")
+
+  provider      AiProvider?    @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  creator       Creator?       @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  campaign      Campaign?      @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  contentItem   ContentItem?   @relation(fields: [contentItemId], references: [id], onDelete: Restrict)
+  generationJob GenerationJob? @relation(fields: [generationJobId], references: [id], onDelete: Restrict)
+
+  @@index([occurredAt])
+  @@index([creatorId, occurredAt])
+  @@index([campaignId, occurredAt])
+  @@index([providerId, occurredAt])
+  @@map("cost_ledger")
+}
+
+// Funds held for a job before it starts; consumed into a ledger charge or released afterwards.
+model BudgetReservation {
+  id              String            @id @default(uuid()) @db.Uuid
+  generationJobId String?           @map("generation_job_id") @db.Uuid
+  providerId      String?           @map("provider_id") @db.Uuid
+  creatorId       String?           @map("creator_id") @db.Uuid
+  campaignId      String?           @map("campaign_id") @db.Uuid
+  contentItemId   String?           @map("content_item_id") @db.Uuid
+  amountMicros    BigInt            @map("amount_micros")
+  basis           CostBasis
+  status          ReservationStatus @default(HELD)
+  expiresAt       DateTime          @map("expires_at") @db.Timestamptz(3)
+  settledAt       DateTime?         @map("settled_at") @db.Timestamptz(3)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  generationJob GenerationJob? @relation(fields: [generationJobId], references: [id], onDelete: SetNull)
+  provider      AiProvider?    @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  creator       Creator?       @relation(fields: [creatorId], references: [id], onDelete: SetNull)
+  campaign      Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  contentItem   ContentItem?   @relation(fields: [contentItemId], references: [id], onDelete: SetNull)
+
+  @@index([status, expiresAt])
+  @@index([creatorId, status])
+  @@index([campaignId, status])
+  @@map("budget_reservations")
+}
+
+model BudgetPolicy {
+  id             String       @id @default(uuid()) @db.Uuid
+  scope          BudgetScope
+  targetId       String?      @map("target_id") @db.Uuid // null for GLOBAL
+  period         BudgetPeriod
+  limitMicros    BigInt       @map("limit_micros")
+  warnAtPercent  Int          @default(80) @map("warn_at_percent")
+  autoPause      Boolean      @default(true) @map("auto_pause")
+  updatedById    String?      @map("updated_by_id") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  // Uniqueness per (scope, target, period) incl. NULL target is enforced by an index in the migration SQL.
+  @@map("budget_policies")
+}
+
+// Hard autonomy limits. Only humans with OWNER/ADMIN role may change them; agents have no write path.
+model AutonomyPolicy {
+  id                     String      @id @default(uuid()) @db.Uuid
+  scope                  PolicyScope
+  targetId               String?     @map("target_id") @db.Uuid
+  maxCostPerJobMicros    BigInt?     @map("max_cost_per_job_micros")
+  maxGenerationsPerItem  Int?        @map("max_generations_per_item")
+  maxConcurrentJobs      Int?        @map("max_concurrent_jobs")
+  maxPostsPerDay         Int?        @map("max_posts_per_day")
+  maxWorkflowMinutes     Int?        @map("max_workflow_minutes")
+  maxRetries             Int?        @map("max_retries")
+  requireHumanApproval   Boolean     @default(false) @map("require_human_approval")
+  updatedById            String?     @map("updated_by_id") @db.Uuid
+  createdAt              DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("autonomy_policies")
+}
+
+// Kill switches: pause one creator, campaign, provider, or the whole generation/publishing chain.
+model ControlSwitch {
+  id          String       @id @default(uuid()) @db.Uuid
+  scope       ControlScope
+  targetId    String?      @map("target_id") @db.Uuid
+  paused      Boolean      @default(true)
+  reason      String
+  changedById String?      @map("changed_by_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("control_switches")
+}
+
+// ─────────────────────────────── Analytics, audit, notifications ───────────────────────────────
+
+model AnalyticsSnapshot {
+  id              String     @id @default(uuid()) @db.Uuid
+  socialAccountId String     @map("social_account_id") @db.Uuid
+  publishingJobId String?    @map("publishing_job_id") @db.Uuid
+  contentItemId   String?    @map("content_item_id") @db.Uuid
+  capturedAt      DateTime   @map("captured_at") @db.Timestamptz(3)
+  origin          DataOrigin
+  source          String // e.g. "instagram_graph_api:v21.0/insights"
+  views           BigInt?
+  reach           BigInt?
+  likes           BigInt?
+  comments        BigInt?
+  shares          BigInt?
+  saves           BigInt?
+  followers       BigInt?
+  watchTimeSec    BigInt?    @map("watch_time_sec")
+  avgViewPercent  Float?     @map("avg_view_percent")
+  raw             Json       @default("{}")
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  socialAccount SocialAccount  @relation(fields: [socialAccountId], references: [id], onDelete: Restrict)
+  publishingJob PublishingJob? @relation(fields: [publishingJobId], references: [id], onDelete: SetNull)
+  contentItem   ContentItem?   @relation(fields: [contentItemId], references: [id], onDelete: SetNull)
+
+  @@index([socialAccountId, capturedAt])
+  @@index([contentItemId, capturedAt])
+  @@map("analytics_snapshots")
+}
+
+// Append-only. UPDATE/DELETE are blocked by a trigger.
+model AuditLog {
+  id         String    @id @default(uuid()) @db.Uuid
+  occurredAt DateTime  @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  actorType  ActorType @map("actor_type")
+  actorId    String?   @map("actor_id") @db.Uuid
+  actorLabel String    @map("actor_label")
+  action     String // dotted verb, e.g. "creator.paused"
+  entityType String?   @map("entity_type")
+  entityId   String?   @map("entity_id")
+  metadata   Json      @default("{}")
+  ipAddress  String?   @map("ip_address")
+  userAgent  String?   @map("user_agent")
+
+  @@index([occurredAt])
+  @@index([entityType, entityId])
+  @@index([actorId, occurredAt])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id        String               @id @default(uuid()) @db.Uuid
+  userId    String?              @map("user_id") @db.Uuid // null = broadcast to all operators
+  severity  NotificationSeverity @default(INFO)
+  type      String
+  title     String
+  body      String               @default("")
+  link      String?
+  readAt    DateTime?            @map("read_at") @db.Timestamptz(3)
+  createdAt DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}

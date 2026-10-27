@@ -1,0 +1,43 @@
+{
+  "family": "creator-farm-web",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "runtimePlatform": { "cpuArchitecture": "X86_64", "operatingSystemFamily": "LINUX" },
+  "executionRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/creator-farm-execution",
+  "taskRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/creator-farm-web",
+  "containerDefinitions": [
+    {
+      "name": "web",
+      "image": "ghcr.io/${REPOSITORY}/web:main",
+      "essential": true,
+      "portMappings": [{ "containerPort": 3000, "protocol": "tcp" }],
+      "environment": [
+        { "name": "APP_ENV", "value": "production" },
+        { "name": "MOCK_MODE", "value": "false" },
+        { "name": "STORAGE_DRIVER", "value": "s3" },
+        { "name": "S3_BUCKET", "value": "${MEDIA_BUCKET}" },
+        { "name": "S3_REGION", "value": "${AWS_REGION}" },
+        { "name": "SECRETS_DRIVER", "value": "aws" },
+        { "name": "AUTH_URL", "value": "https://${APP_DOMAIN}" },
+        { "name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": "http://localhost:4318" },
+        { "name": "OTEL_SERVICE_NAME", "value": "creator-farm-web" }
+      ],
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:creatorfarm/prod/database-url" },
+        { "name": "REDIS_URL", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:creatorfarm/prod/redis-url" },
+        { "name": "AUTH_SECRET", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:creatorfarm/prod/auth-secret" },
+        { "name": "APP_ENCRYPTION_KEY", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:creatorfarm/prod/encryption-key" }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -fsS http://localhost:3000/api/health/live || exit 1"],
+        "interval": 30, "timeout": 5, "retries": 3, "startPeriod": 30
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": { "awslogs-group": "/creator-farm/web", "awslogs-region": "${AWS_REGION}", "awslogs-stream-prefix": "web" }
+      }
+    }
+  ]
+}

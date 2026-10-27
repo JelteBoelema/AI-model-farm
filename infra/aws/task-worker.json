@@ -1,0 +1,43 @@
+{
+  "//": "One template, four services: set WORKER_ROLE to scheduler | generation | media | publishing. Media workers need more CPU/memory for FFmpeg (e.g. 2048/4096).",
+  "family": "creator-farm-worker-${WORKER_ROLE}",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "${WORKER_CPU}",
+  "memory": "${WORKER_MEMORY}",
+  "runtimePlatform": { "cpuArchitecture": "X86_64", "operatingSystemFamily": "LINUX" },
+  "executionRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/creator-farm-execution",
+  "taskRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/creator-farm-worker",
+  "containerDefinitions": [
+    {
+      "name": "worker",
+      "image": "ghcr.io/${REPOSITORY}/worker:main",
+      "essential": true,
+      "stopTimeout": 120,
+      "environment": [
+        { "name": "APP_ENV", "value": "production" },
+        { "name": "MOCK_MODE", "value": "false" },
+        { "name": "WORKER_QUEUES", "value": "${WORKER_ROLE}" },
+        { "name": "SERVICE_NAME", "value": "worker-${WORKER_ROLE}" },
+        { "name": "STORAGE_DRIVER", "value": "s3" },
+        { "name": "S3_BUCKET", "value": "${MEDIA_BUCKET}" },
+        { "name": "S3_REGION", "value": "${AWS_REGION}" },
+        { "name": "SECRETS_DRIVER", "value": "aws" }
+      ],
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:creatorfarm/prod/database-url" },
+        { "name": "REDIS_URL", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:creatorfarm/prod/redis-url" },
+        { "name": "AUTH_SECRET", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:creatorfarm/prod/auth-secret" },
+        { "name": "APP_ENCRYPTION_KEY", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:creatorfarm/prod/encryption-key" }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -fsS http://localhost:9464/healthz || exit 1"],
+        "interval": 30, "timeout": 5, "retries": 3, "startPeriod": 30
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": { "awslogs-group": "/creator-farm/worker", "awslogs-region": "${AWS_REGION}", "awslogs-stream-prefix": "${WORKER_ROLE}" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "family": "creator-farm-migrate",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/creator-farm-execution",
+  "containerDefinitions": [
+    {
+      "name": "migrate",
+      "image": "ghcr.io/${REPOSITORY}/migrate:main",
+      "essential": true,
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:creatorfarm/prod/database-url" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": { "awslogs-group": "/creator-farm/migrate", "awslogs-region": "${AWS_REGION}", "awslogs-stream-prefix": "migrate" }
+      }
+    }
+  ]
+}
