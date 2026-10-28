@@ -4,7 +4,7 @@ Acties voor de eigenaar die bewust zijn uitgesteld tot de laatste fase, als het 
 
 ## 1. Pull requests reviewen en mergen
 
-Fase 3 en 4 bevatten databasemigraties (`prompt_studio`, `provider_execution`); die worden bij deployment automatisch toegepast door de `migrate`-taak.
+Fase 3, 4 en 5 bevatten databasemigraties (`prompt_studio`, `provider_execution`, `content_factory`); die worden bij deployment automatisch toegepast door de `migrate`-taak.
 
 De fasen worden gestapeld opgeleverd: elke fase-branch bouwt voort op de vorige. Merge ze **in volgorde** en klik na elke merge op *Delete branch*: GitHub zet de basis van de volgende PR dan automatisch op `main` (anders handmatig: *Edit → base: main*).
 
@@ -13,6 +13,7 @@ De fasen worden gestapeld opgeleverd: elke fase-branch bouwt voort op de vorige.
 | 2 — Creator Engine | [#1](https://github.com/JelteBoelema/AI-model-farm/pull/1) | `main` | wacht op review |
 | 3 — Prompt Studio | [#2](https://github.com/JelteBoelema/AI-model-farm/pull/2) | `phase-2-creator-engine` | wacht op review (na #1) |
 | 4 — AI Providers | [#3](https://github.com/JelteBoelema/AI-model-farm/pull/3) | `phase-3-prompt-studio` | wacht op review (na #2) |
+| 5 — Content Factory | [#4](https://github.com/JelteBoelema/AI-model-farm/pull/4) | `phase-4-ai-providers` | wacht op review (na #3) |
 
 Per PR: beschrijving lezen, de CI-checks moeten groen zijn, eventueel lokaal draaien (`README.md` → *Snel starten*), dan *Merge*.
 
@@ -38,7 +39,9 @@ Zonder deze stappen draait alles op de gelabelde mockproviders; betaalde generat
 4. **Model voor OpenAI Images bevestigen**: standaard staat `gpt-image-2` (gpt-image-1 is volgens openbare bronnen op 23-10-2026 uitgefaseerd). Dit is nog niet live geverifieerd; de verbindingstest toont welke beeldmodellen je sleutel ziet.
 5. Per provider op **Test connection** klikken en daarna inschakelen.
 6. Eenmalig `pnpm test:live --yes` draaien (kost enkele centen) en de uitkomst aan Claude doorgeven, zodat de adapters definitief geverifieerd zijn.
-7. Optioneel: in de omgevingsinstellingen van Claude Code `developers.openai.com` toevoegen aan de toegestane domeinen, zodat de OpenAI-documentatie tijdens het bouwen gecontroleerd kan worden.
+7. Na de deployment van fase 5 eenmalig de seed draaien (`pnpm db:seed`): die voegt alleen de nieuwe starttemplates toe (brief, fotoshotlist, QC-rubric) en laat bestaande templates ongemoeid.
+8. Per creator een **goedgekeurd karakterprofiel met canonieke referentiefoto's**: zonder profiel start de productie niet, zonder referenties controleert QC de karakterconsistentie niet.
+9. Optioneel: in de omgevingsinstellingen van Claude Code `developers.openai.com` toevoegen aan de toegestane domeinen, zodat de OpenAI-documentatie tijdens het bouwen gecontroleerd kan worden.
 
 ## Overige configuratie (staat al in de documentatie)
 

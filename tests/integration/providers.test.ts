@@ -266,7 +266,7 @@ describe("prompt tests through the queue", () => {
     expect(done.status).toBe("SUCCEEDED");
     expect(done.outputMedia).toMatchObject({ kind: "IMAGE", source: "GENERATED", isMock: true, providerKey: "mock-image", status: "PENDING_REVIEW", promptSnapshot: "Photo about boots" });
     const bytes = await storage().get(done.outputMedia!.storageKey);
-    expect(sniffImage(bytes)).toMatchObject({ mimeType: "image/png", width: 341, height: 512 });
+    expect(sniffImage(bytes)).toMatchObject({ mimeType: "image/png", width: 512, height: 768 });
   });
 
   it("fails blocked runs without retrying and without cost", async () => {

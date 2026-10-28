@@ -97,6 +97,19 @@ describe("Anthropic adapter", () => {
     if (status === 429) expect((err as ProviderError).options.retryAfterMs).toBe(7000);
   });
 
+  it("sends images before the text and counts them in the estimate", async () => {
+    const { fn, calls } = fakeFetch(200, message());
+    const img = { bytes: Buffer.from([1, 2, 3]), mimeType: "image/png" };
+    await adapter(fn).generate({ ...request(), referenceImages: [img] }, signal());
+    expect((calls[0]!.body.messages as { content: unknown }[])[0]!.content).toEqual([
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "AQID" } },
+      { type: "text", text: "Say hello" },
+    ]);
+    const a = adapter(fn);
+    expect(a.estimate({ ...request(), referenceImages: [img] }).maxUsage.input_mtok).toBeGreaterThan(a.estimate(request()).maxUsage.input_mtok! + 5_000);
+    expect(() => a.validate({ ...request(), referenceImages: [{ bytes: Buffer.from([1]), mimeType: "image/svg+xml" }] })).toThrow(/Unsupported image/);
+  });
+
   it("validates and estimates conservatively before spending", () => {
     const a = adapter(fakeFetch(200, {}).fn);
     expect(() => a.validate({ ...request(), prompt: " " })).toThrow(/Empty prompt/);

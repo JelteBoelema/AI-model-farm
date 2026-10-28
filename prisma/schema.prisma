@@ -582,6 +582,12 @@ model ContentItem {
   aiDisclosure    Boolean       @default(true) @map("ai_disclosure")
   maxGenerations  Int           @default(6) @map("max_generations")
   generationCount Int           @default(0) @map("generation_count")
+  batchId         String?       @map("batch_id") @db.Uuid
+  // Pipeline step that failed last (resume restarts there) and the reason shown to operators.
+  failedStep      String?       @map("failed_step")
+  lastError       String?       @map("last_error")
+  qualityReport   Json?         @map("quality_report")
+  qualityScore    Float?        @map("quality_score")
   isDemo          Boolean       @default(false) @map("is_demo")
   createdById     String?       @map("created_by_id") @db.Uuid
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -589,6 +595,7 @@ model ContentItem {
 
   creator            Creator             @relation(fields: [creatorId], references: [id], onDelete: Restrict)
   campaign           Campaign?           @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  batch              ContentBatch?       @relation(fields: [batchId], references: [id], onDelete: SetNull)
   scenes             VideoScene[]
   generationJobs     GenerationJob[]
   mediaAssets        MediaAsset[]
@@ -599,8 +606,22 @@ model ContentItem {
 
   @@index([creatorId, status])
   @@index([campaignId])
+  @@index([batchId])
   @@index([status, updatedAt])
   @@map("content_items")
+}
+
+// A set of content items created together (e.g. a week of ideas) and produced as one run.
+model ContentBatch {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  contentItems ContentItem[]
+
+  @@index([createdAt])
+  @@map("content_batches")
 }
 
 // Storyboard scene of a video content item; every generated take is a separate media asset.
@@ -635,6 +656,8 @@ model GenerationJob {
   providerId          String              @map("provider_id") @db.Uuid
   promptVersionId     String?             @map("prompt_version_id") @db.Uuid
   kind                GenerationKind
+  // Content pipeline step ("brief", "script", "caption", "image", "qc"); "" for other jobs.
+  step                String              @default("")
   status              GenerationJobStatus @default(QUEUED)
   idempotencyKey      String              @unique @map("idempotency_key")
   renderedPrompt      String              @default("") @map("rendered_prompt")
@@ -645,6 +668,9 @@ model GenerationJob {
   estimatedCostMicros BigInt?             @map("estimated_cost_micros")
   actualCostMicros    BigInt?             @map("actual_cost_micros")
   error               Json?
+  // Structured result of a text step (brief, script, caption, QC verdict); images become media assets.
+  output              Json?
+  costBasis           CostBasis?          @map("cost_basis")
   isMock              Boolean             @default(false) @map("is_mock")
   startedAt           DateTime?           @map("started_at") @db.Timestamptz(3)
   finishedAt          DateTime?           @map("finished_at") @db.Timestamptz(3)
@@ -661,7 +687,7 @@ model GenerationJob {
   reservations  BudgetReservation[]
 
   @@index([status, updatedAt])
-  @@index([contentItemId])
+  @@index([contentItemId, step])
   @@index([creatorId, createdAt])
   @@map("generation_jobs")
 }
@@ -689,6 +715,8 @@ model MediaAsset {
   qualityReport   Json?       @map("quality_report")
   // Licence / consent note for uploaded material (references, voices).
   rightsNote      String?     @map("rights_note")
+  // Position in the content item's shot list (carousel slide); null for references.
+  shotIndex       Int?        @map("shot_index")
   isMock          Boolean     @default(false) @map("is_mock")
   createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)

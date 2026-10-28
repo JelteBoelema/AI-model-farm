@@ -27,10 +27,11 @@ Bron: `prisma/schema.prisma` en `prisma/migrations/*/migration.sql`. Alle 17 ver
 | `campaign_prompt_pins` | Campagne pint één gepubliceerde versie per template | PK `(campaign_id, template_id)` |
 | `ai_providers` | Providerregister: capabilities, status (`NOT_CONFIGURED/ACTIVE/DEGRADED/DISABLED`), mock-vlag, prijstabel, prioriteit | lege prijstabel ⇒ betaald gebruik geblokkeerd |
 | `campaigns` + `campaign_creators` | Campagnes over meerdere creators | n:m |
-| `content_items` | Eén publiceerbaar stuk content door de pipeline | status-machine; `generation_count ≤ max_generations` (check) |
+| `content_items` | Eén publiceerbaar stuk content door de pipeline: idee, brief, shotlist (`script.shots`), caption, hashtags, QC-rapport en -score, mislukte stap + reden | status-machine; `generation_count ≤ max_generations` (check) |
+| `content_batches` | Set items die samen zijn aangemaakt en geproduceerd | items houden hun batch (`SET NULL` bij verwijderen) |
 | `video_scenes` | Storyboard: volgorde, prompt, actie, duur, dialoog, audio, referentie, goedgekeurde take | `(content_item_id, position)` uniek; duur > 0 |
-| `generation_jobs` | Eén generatiepoging: provider, promptversie, gerenderde prompt, parameters, provider-job-ID, pogingen, geraamde/werkelijke kosten, fout | `idempotency_key` uniek; pogingen 1–10 |
-| `media_assets` | Opgeslagen bestand + volledige herkomst (prompt, provider, modelversie, parameters, kwaliteit, rechten) | `storage_key` uniek; checksum-formaat |
+| `generation_jobs` | Eén pipelinestap (`step`) of generatie: provider, promptversie, gerenderde prompt, parameters, provider-request-ID, pogingen, gestructureerde output, werkelijke kosten + basis, fout | `idempotency_key` uniek; pogingen 1–10; kosten alleen met basis (check) |
+| `media_assets` | Opgeslagen bestand + volledige herkomst (prompt, provider, modelversie, parameters, kwaliteit, rechten); `shot_index` voor content-takes | `storage_key` uniek; checksum-formaat; **max. één goedgekeurde take per shot** (partiële index) |
 | `approvals` | Menselijke beslissingen: content, media, karakter, promptversie, accountkoppeling, budgetverhoging, securitywijziging | `payload` bevat het voorstel |
 | `publishing_jobs` | Eén publicatie van een item op een account | `idempotency_key` uniek; **max. één niet-geannuleerde job per item+account**; `(platform, external_post_id)` uniek |
 | `cost_ledger` | **Append-only** kostenjournaal | trigger blokkeert UPDATE/DELETE/TRUNCATE; `idempotency_key` uniek; `ESTIMATED` vereist `uncertainty_note`; `CHARGE ≥ 0` |
@@ -89,9 +90,9 @@ erDiagram
 
 Gedefinieerd in `src/lib/state-machines.ts` en volledig getest. Kernregels:
 
-- **Content** — vooruit door de pipeline; `FAILED` kan hervat worden bij de mislukte stap (`PROMPTED`, `GENERATING`, `APPROVED` of `SCHEDULED`). Een mislukte publicatie gaat terug naar `SCHEDULED`, niet naar generatie.
+- **Content** — vooruit door de pipeline; `FAILED` kan hervat worden bij de mislukte stap (`PROMPTED`, `GENERATING`, `QC_REVIEW`, `APPROVED` of `SCHEDULED`). Mislukte tekststappen laten de status staan en zetten alleen `failed_step`. Een mislukte publicatie gaat terug naar `SCHEDULED`, niet naar generatie.
 - **Publicatie** — `PUBLISHING → AWAITING_CONFIRMATION` bij timeout; vanuit daar alleen `PUBLISHED`, `FAILED` of `NEEDS_MANUAL_ACTION` na remote verificatie. Nooit direct terug naar `PUBLISHING`.
-- **Generatiejob** — `FAILED → QUEUED` (retry) of `DEAD_LETTER`; `BLOCKED_BUDGET/POLICY → QUEUED` na vrijgave.
+- **Generatiejob** — `RUNNING → BLOCKED_BUDGET/POLICY` als de budget- of pauzecheck in de poging faalt; `FAILED → QUEUED` (retry/hervatten) of `DEAD_LETTER`; `BLOCKED_BUDGET/POLICY → QUEUED` na vrijgave.
 - **Karakterprofiel** — `DRAFT → APPROVED → SUPERSEDED`; een nieuwe versie goedkeuren zet de vorige op `SUPERSEDED` (in één transactie, afgedwongen door de partiële unieke index).
 
 ## Onveranderlijkheid van goedgekeurde content

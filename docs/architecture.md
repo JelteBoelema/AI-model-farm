@@ -95,7 +95,20 @@ flowchart LR
 
 ## Content-pipeline (fase 5–9)
 
-Elke stap is een **afzonderlijke job** met eigen idempotency key `<contentItemId>:<stap>:<poging>`. Een mislukte stap wordt hervat vanaf die stap; een mislukte publicatie leidt nooit tot een nieuwe generatie.
+Elke stap is een **afzonderlijke job** (`generation_jobs`) met een deterministische idempotency key: `content:<item>:brief:1`, `…:script:1`, `…:caption:1`, `…:image:<shot>:<take>` en `…:qc:<generaties>`. De jobrij is de bron van waarheid; een geslaagde stap wordt nooit opnieuw uitgevoerd. Een mislukte stap stopt de keten (`content_items.failed_step` + `last_error`); **hervatten** zet alleen de mislukte jobs opnieuw in de wachtrij, zodat werk dat al betaald is niet opnieuw gebeurt. Een mislukte publicatie leidt nooit tot een nieuwe generatie.
+
+Fase 5 (`src/server/services/content-pipeline.ts`, `src/lib/content-pipeline.ts`) levert de fotoformaten (post, carrousel, story):
+
+| Stap | Status na afloop | Template (kind + sleutelprefix) | Provider |
+|---|---|---|---|
+| brief | `IDEA → BRIEFED` | `IDEATION`, `brief.` | tekst (groot model) |
+| shotlist | `BRIEFED → SCRIPTED` | `SCRIPT`, `script.photo` | tekst (groot model) |
+| caption | `SCRIPTED → PROMPTED` | `CAPTION`, `caption.` | tekst (bulkmodel) |
+| beelden (één job per shot) | `PROMPTED → GENERATING → QC_REVIEW` | `IMAGE`, `image.` | beeld, met canonieke referenties |
+| kwaliteitscontrole | `QC_REVIEW → READY` (of blijft ter review) | `QUALITY_RULES`, `qc.` | tekst met beeldinvoer + technische checks |
+| menselijke goedkeuring | `READY → APPROVED` | — | — |
+
+Tekststappen vragen gestructureerde JSON (JSON-schema) en valideren het antwoord met Zod. De AI-disclosure wordt aan de caption toegevoegd als het model hem vergeet. Templates worden opgelost zoals in de Prompt Studio (campagne-pin → campagne → creator → globaal), beperkt tot de sleutelprefix van de stap. QC haalt `READY` alleen als alle technische checks slagen, het rubriekmodel slaagt met score ≥ 70, zonder rubriekfouten en (met referentiefoto's) met een consistent personage. Anders beslist een mens: nieuwe take per shot, takes goedkeuren/afwijzen, of goedkeuren ondanks QC met een verplichte reden.
 
 ```mermaid
 sequenceDiagram
@@ -148,14 +161,18 @@ Mechanismen:
 
 ## Kostenbeheersing (Cost Manager, fase 5/8)
 
-1. **Raming** — `adapter.estimateCost()` geeft een conservatieve bovengrens. Geen prijs (`null`) ⇒ job `BLOCKED_POLICY`, nooit € 0.
-2. **Reservering** — in één transactie met `SELECT … FOR UPDATE` op de budgetregels: som(geboekt + gereserveerd + raming) ≤ limiet voor *alle* toepasselijke budgetten (globaal dag/maand, creator, campagne, provider) én ≤ `maxCostPerJob`. Anders `BLOCKED_BUDGET` + melding.
+Geïmplementeerd in `src/server/services/cost-manager.ts` en `generation.ts`.
+
+1. **Raming** — `adapter.estimate()` geeft het maximale verbruik; geprijsd met de prijslijst van de provider. Geen prijs ⇒ job `BLOCKED_BUDGET`, nooit € 0.
+2. **Reservering** — in één transactie onder een advisory lock (`pg_advisory_xact_lock`), zodat gelijktijdige jobs niet samen in de laatste euro passen: som(geboekt + gereserveerd + raming) ≤ limiet voor *alle* toepasselijke budgetten (verplicht farm-breed maandbudget, plus dag/maand per creator, campagne, provider) én ≤ `maxCostPerJob`. Anders `BLOCKED_BUDGET` + melding; de provider wordt niet aangeroepen.
 3. **Uitvoering** — alleen met een `HELD`-reservering.
-4. **Afrekening** — werkelijke kosten (`PROVIDER_REPORTED`/`MEASURED`, of `ESTIMATED` met onzekerheidsnotitie) als `CHARGE` in het append-only `cost_ledger`; reservering → `CONSUMED`. Correcties alleen via `ADJUSTMENT`-boekingen.
+4. **Afrekening** — werkelijke kosten (`MEASURED`, of `ESTIMATED` met onzekerheidsnotitie bij timeout of ontbrekende prijs) als `CHARGE` in het append-only `cost_ledger`, in dezelfde transactie als reservering → `CONSUMED`. Ledger-sleutel per poging (`genjob:<id>:<poging>`), dus elke betaalde call wordt precies één keer geboekt. Niet-gefactureerde calls geven de reservering vrij (`RELEASED`). Correcties alleen via `ADJUSTMENT`-boekingen.
 5. **Opruimen** — verlopen reserveringen worden door `maintenance` vrijgegeven.
 6. **Automatisch pauzeren** — bij het bereiken van een harde limiet met `autoPause` zet het systeem een `control_switch`; hervatten vereist een admin, verhogen vereist een owner-goedkeuring.
 
-Mock-kosten (`is_mock`) worden apart getoond en tellen nooit mee als uitgave.
+Mockcalls kosten aantoonbaar € 0, reserveren niets en worden niet geboekt.
+
+**Kosten per bruikbaar asset** = alle contentkosten (inclusief afgewezen takes, mislukte pogingen en QC) ÷ aantal goedgekeurde gegenereerde assets; zichtbaar op Content Factory, Costs & Budgets en per item. Zonder goedgekeurde assets is de waarde onbepaald ("—"), niet nul.
 
 ## Autonomie (fase 8)
 

@@ -8,10 +8,11 @@ import { StatCard } from "@/components/dashboard/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { parseFilters } from "@/lib/filters";
+import { parseFilters, periodStart } from "@/lib/filters";
 import { formatMoney } from "@/lib/money";
 import { formatDateTime, humanize } from "@/lib/utils";
 import { db } from "@/server/db";
+import { costPerUsableAsset } from "@/server/services/content";
 import { getSpend, ledgerWhere } from "@/server/services/dashboard";
 
 export const metadata: Metadata = { title: "Costs & Budgets" };
@@ -20,7 +21,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 export default async function CostsPage({ searchParams }: Props) {
   const f = parseFilters(await searchParams);
   const where = ledgerWhere(f);
-  const [spend, entries, policies, held, creators, campaigns, providers] = await Promise.all([
+  const [spend, entries, policies, held, creators, campaigns, providers, perAsset] = await Promise.all([
     getSpend(where),
     db.costLedger.findMany({ where, orderBy: { occurredAt: "desc" }, take: 50, include: { provider: { select: { displayName: true } }, creator: { select: { name: true } } } }),
     db.budgetPolicy.findMany({ orderBy: [{ scope: "asc" }, { period: "asc" }] }),
@@ -28,22 +29,23 @@ export default async function CostsPage({ searchParams }: Props) {
     db.creator.findMany({ select: { id: true, name: true } }),
     db.campaign.findMany({ select: { id: true, name: true } }),
     db.aiProvider.findMany({ select: { id: true, displayName: true } }),
+    costPerUsableAsset({ since: periodStart(f.period), creatorId: f.creator, campaignId: f.campaign }),
   ]);
   const targetName = new Map<string, string>([...creators.map((c) => [c.id, c.name] as const), ...campaigns.map((c) => [c.id, c.name] as const), ...providers.map((p) => [p.id, p.displayName] as const)]);
 
   return (
     <>
       <PageHeader title="Costs & Budgets" description="Append-only cost ledger. Missing prices are never treated as zero; estimates are labelled with their uncertainty." />
-      <PhaseNotice
-        phase={5}
-        title="Cost Manager"
-        items={["Pre-flight estimate and budget reservation per job", "Settlement of actual cost; release of unused holds", "Automatic pause at hard limits (phase 8)", "Cost per usable asset and per published item (phase 9)"]}
-      />
+      <PhaseNotice phase={8} title="Budget automation" items={["Automatic pause and notifications at hard limits", "Budget increase requests with owner approval", "Cost per published item (phase 9)"]} />
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Measured / provider-reported" value={formatMoney(spend.measuredMicros)} badge={<OriginBadge kind="measured" />} />
         <StatCard label="Estimated" value={formatMoney(spend.estimatedMicros)} badge={<OriginBadge kind="estimated" />} hint="Conservative estimates where providers report no cost" />
         <StatCard label="Currently reserved" value={formatMoney(held._sum.amountMicros ?? 0n)} hint={`${held._count} open reservation(s)`} />
-        <StatCard label="Mock-mode costs" value={formatMoney(spend.mockMicros)} badge={<OriginBadge kind="mock" />} hint="Simulated, never counted as spend" />
+        <StatCard
+          label="Cost per usable asset"
+          value={perAsset.perAssetMicros === null ? "—" : formatMoney(perAsset.perAssetMicros, "EUR", 3)}
+          hint={`All content spend (incl. rejected takes and QC) ÷ ${perAsset.usableAssets} approved asset(s)${spend.mockMicros > 0n ? `; mock costs ${formatMoney(spend.mockMicros)} are excluded` : ""}`}
+        />
       </section>
       <div className="grid gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">

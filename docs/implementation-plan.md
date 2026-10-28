@@ -103,11 +103,29 @@ Elke fase eindigt met werkende functionaliteit, groene tests (unit, integratie, 
 - [x] Mockoutput is gewatermerkt en gelabeld; testrun via de worker zichtbaar in de UI. *(unit + e2e)*
 - [ ] Live smoketest met echte credentials — wacht op sleutels (zie `docs/open-actions.md`).
 
-## Fase 5 — Content Factory
+## Fase 5 — Content Factory ✅ (opgeleverd)
 
-**Inhoud** — pipeline-jobs per stap met idempotency keys, Cost Manager (raming → reservering → afrekening → vrijgave), mediabibliotheek met previews, vergelijking en goedkeuring, kwaliteitscontrole (LLM-rubric + technische checks), batches.
+**Inhoud**
+- Productieketen voor fotoformaten (post, carrousel van 2–6 slides, story): brief → shotlist → caption → één beeldjob per shot → kwaliteitscontrole → menselijke goedkeuring. Elke stap is een eigen job met deterministische idempotency key; de keten loopt automatisch door in de worker.
+- Hervatten: een mislukte of geblokkeerde stap stopt de keten met een duidelijke reden; *Resume* zet alleen de mislukte jobs opnieuw in de wachtrij. Geslaagde stappen worden nooit opnieuw uitgevoerd of betaald. Vastgelopen jobs worden door maintenance gestopt en zijn ook hervatbaar.
+- Cost Manager: raming → reservering (onder lock, over alle budgetten) → afrekening (ledger + reservering in één transactie) → vrijgave. Verlopen reserveringen worden opgeruimd.
+- Kwaliteitscontrole: technische checks (type, grootte, resolutie, beeldverhouding, duplicaten, mock-waarschuwing) plus een rubric-review door Claude met de beelden én de canonieke referentiefoto's (karakterconsistentie). Alleen bij slagen automatisch naar *Ready*.
+- Review: per shot takes goedkeuren of afwijzen (maximaal één goedgekeurde take per shot, afgedwongen in de database), nieuwe take genereren (telt mee voor de generatielimiet), item goedkeuren of afwijzen. Goedkeuren ondanks QC vraagt een reden. Alle besluiten als `approvals` + audit.
+- Batches: tot 20 ideeën in één keer, optioneel direct produceren; batch later produceren.
+- Mediabibliotheek met previews, filters op status en bron, goedkeuren/afwijzen en een vergelijkingsweergave met herkomst, prompt en QC-rapport.
+- Kosten per bruikbaar asset op Content Factory, Costs & Budgets en per item.
+- Nieuwe starttemplates: `brief.default`, `script.photo.default`, `qc.rubric.default` (bestaande installaties: seed opnieuw draaien, voegt alleen ontbrekende templates toe).
+- Claude-adapter accepteert beelden (voor visuele QC); mock-tekst levert gelabelde JSON volgens het gevraagde schema.
 
-**Acceptatie** — volledige keten idee → goedgekeurd asset in mockmodus (e2e); budgetoverschrijding blokkeert de job vóór de providercall (integratie); een gefaalde job kan veilig hervat worden zonder dubbele kosten (integratie); kosten per bruikbaar asset zichtbaar.
+**Nog niet** — video- en talking-head-formaten (fase 6); publiceren (fase 7); automatische pauze bij budgetlimieten (fase 8).
+
+**Acceptatie** — aangetoond:
+- [x] Volledige keten idee → goedgekeurd asset in mockmodus. *(e2e + integratie)*
+- [x] Budgetoverschrijding blokkeert de job vóór de providercall; na verhogen hervat de keten. *(integratie)*
+- [x] Een gefaalde job wordt veilig hervat zonder dubbele kosten: alleen de mislukte slide draait opnieuw, elke jobkost is gelijk aan wat het ledger boekte, geen openstaande reserveringen. *(integratie)*
+- [x] Gelijktijdige reserveringen passen nooit samen boven het budget. *(integratie)*
+- [x] Kosten per bruikbaar asset zichtbaar en correct berekend. *(integratie + UI)*
+- [x] Viewers zien de factory alleen-lezen. *(e2e)*
 
 ## Fase 6 — Video Engine
 

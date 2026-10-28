@@ -2,7 +2,7 @@
 
 Cloud-gehost platform om 10–50 virtuele AI-creators te beheren: identiteit, prompts, beeld- en videogeneratie, planning, publicatie via officiële API's, analytics en harde kostenbeheersing — vanuit één dashboard, met maximale autonomie binnen expliciet ingestelde grenzen.
 
-**Status: fasen 1 (Foundation), 2 (Creator Engine), 3 (Prompt Studio) en 4 (AI Providers) opgeleverd.** Openstaande acties voor de eigenaar: [`docs/open-actions.md`](docs/open-actions.md). Zie [`docs/implementation-plan.md`](docs/implementation-plan.md) voor wat er werkt en wat per fase volgt.
+**Status: fasen 1 (Foundation), 2 (Creator Engine), 3 (Prompt Studio), 4 (AI Providers) en 5 (Content Factory) opgeleverd.** Openstaande acties voor de eigenaar: [`docs/open-actions.md`](docs/open-actions.md). Zie [`docs/implementation-plan.md`](docs/implementation-plan.md) voor wat er werkt en wat per fase volgt.
 
 ## Wat er nu werkt
 
