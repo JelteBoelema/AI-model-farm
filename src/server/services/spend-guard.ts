@@ -3,13 +3,18 @@
 // autonomy policy's maximum cost per job. Budget held by open reservations counts as used; the
 // cost manager runs this check under a lock together with creating the reservation.
 
-import type { BudgetPeriod, BudgetScope, Prisma, PrismaClient } from "@prisma/client";
+import type { BudgetPeriod, BudgetPolicy, BudgetScope, Prisma, PrismaClient } from "@prisma/client";
 import { formatMoney } from "@/lib/money";
 import { db } from "../db";
 import { DomainError } from "../errors";
+import { effectivePolicy } from "./policy";
 
 export class BudgetBlockedError extends DomainError {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** The budget that would be exceeded (absent for missing prices or a missing farm-wide budget). */
+    readonly policy?: BudgetPolicy,
+  ) {
     super(message);
     this.name = "BudgetBlockedError";
   }
@@ -23,11 +28,11 @@ export interface SpendContext {
   now?: Date;
 }
 
-function periodStart(period: BudgetPeriod, now: Date) {
+export function periodStart(period: BudgetPeriod, now: Date) {
   return period === "MONTH" ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)) : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
-const SCOPE_FILTER: Record<BudgetScope, (id: string | null) => Prisma.CostLedgerWhereInput> = {
+export const SCOPE_FILTER: Record<BudgetScope, (id: string | null) => Prisma.CostLedgerWhereInput> = {
   GLOBAL: () => ({}),
   CREATOR: (id) => ({ creatorId: id }),
   CAMPAIGN: (id) => ({ campaignId: id }),
@@ -43,9 +48,11 @@ export async function assertSpendAllowed(ctx: SpendContext, client: Client = db)
   const globalMonth = await client.budgetPolicy.findFirst({ where: { scope: "GLOBAL", period: "MONTH" } });
   if (!globalMonth) throw new BudgetBlockedError("No farm-wide monthly budget is set; paid generation stays blocked until an owner sets one.");
 
-  const autonomy = await client.autonomyPolicy.findFirst({ where: { scope: "GLOBAL" } });
-  if (autonomy?.maxCostPerJobMicros != null && ctx.estimateMicros > autonomy.maxCostPerJobMicros)
-    throw new BudgetBlockedError(`Estimated cost ${formatMoney(ctx.estimateMicros, "EUR", 4)} exceeds the maximum per job (${formatMoney(autonomy.maxCostPerJobMicros)}).`);
+  const autonomy = await effectivePolicy({ creatorId: ctx.creatorId, campaignId: ctx.campaignId }, client);
+  if (autonomy.maxCostPerJobMicros !== null && ctx.estimateMicros > autonomy.maxCostPerJobMicros)
+    throw new BudgetBlockedError(
+      `Estimated cost ${formatMoney(ctx.estimateMicros, "EUR", 4)} exceeds the maximum per job (${formatMoney(autonomy.maxCostPerJobMicros)}, ${(autonomy.source.maxCostPerJobMicros ?? "GLOBAL").toLowerCase()} policy).`,
+    );
 
   const targets: { scope: BudgetScope; id: string | null }[] = [
     { scope: "GLOBAL", id: null },
@@ -71,6 +78,7 @@ export async function assertSpendAllowed(ctx: SpendContext, client: Client = db)
       const period = p.period === "DAY" ? "daily" : "monthly";
       throw new BudgetBlockedError(
         `The ${label} ${period} budget of ${formatMoney(p.limitMicros)} would be exceeded (used ${formatMoney(used)}, this call up to ${formatMoney(ctx.estimateMicros, "EUR", 4)}).`,
+        p,
       );
     }
   }

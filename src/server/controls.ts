@@ -60,6 +60,8 @@ export async function setControlSwitch(
   if (global !== (targetId === null)) throw new Error("Global switches take no target; scoped switches require one");
   const reason = input.reason.trim();
   if (reason.length < 3) throw new Error("A reason is required");
+  // Anything automated may pull the brake; only a person releases it.
+  if (!input.paused && actor.type !== "USER") throw new Error("Only a person can resume a paused switch");
 
   await db.$transaction(async (tx) => {
     const existing = await tx.controlSwitch.findFirst({ where: { scope: input.scope, targetId } });

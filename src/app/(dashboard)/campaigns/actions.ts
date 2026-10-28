@@ -1,10 +1,10 @@
 "use server";
 
 import { z } from "zod";
-import { toMicros } from "@/lib/money";
 import { defineAction } from "@/server/actions";
 import { actingUserOf } from "@/server/auth/session";
-import { campaignSchema, changeCampaignStatus, createCampaign, setCampaignBudget, updateCampaign } from "@/server/services/campaigns";
+import { changeBudget } from "@/server/services/policy-admin";
+import { campaignSchema, changeCampaignStatus, createCampaign, updateCampaign } from "@/server/services/campaigns";
 
 const id = z.string().uuid();
 const REVALIDATE = { revalidate: ["/campaigns", "/content", "/calendar"] };
@@ -23,6 +23,7 @@ export const campaignStatusAction = defineAction(
 export const campaignBudgetAction = defineAction(
   "budgets:lower",
   z.object({ campaignId: id, period: z.enum(["DAY", "MONTH"]), limitEur: z.string().trim().regex(/^\d{1,7}(\.\d{1,2})?$/, "Use an amount such as 250 or 99.50").nullable() }),
-  async (input, { user }) => setCampaignBudget(actingUserOf(user), input.campaignId, input.period, input.limitEur === null ? null : toMicros(input.limitEur)),
+  // Raising or removing a cap is filed as a request for the owner unless the owner makes it.
+  async (input, { user }) => changeBudget(actingUserOf(user), { scope: "CAMPAIGN", targetId: input.campaignId, period: input.period, limitEur: input.limitEur }),
   REVALIDATE,
 );

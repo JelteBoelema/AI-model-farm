@@ -37,7 +37,24 @@
 
 Elke server action loopt via `defineAction(permission, schema, handler)`: authenticatie → permissie → Zod-validatie → handler → veilige foutvertaling. Onverwachte fouten krijgen een referentie-ID; details staan alleen in de serverlogs.
 
-Wijzigingen die expliciete toestemming vereisen (nieuwe externe accountkoppeling, verhoging harde budgetlimiet, securitywijziging) lopen via een `approvals`-record dat door een owner wordt besloten (fase 7/8).
+Wijzigingen die expliciete toestemming vereisen lopen via een `approvals`-record dat door een owner wordt besloten (Settings → Approvals):
+- een nieuwe externe accountkoppeling;
+- een verhoging of verwijdering van een harde budgetlimiet;
+- een versoepeling van het autonomiebeleid;
+- een securitywijziging.
+
+Een admin die zo'n wijziging maakt, dient automatisch een verzoek in; aanscherpen mag een admin direct.
+
+### Autopilot en andere automatische actoren
+
+- De autopilot handelt als eigen service-identiteit:
+  - actor `AGENT`;
+  - `users.is_system`, altijd uitgeschakeld (CHECK-constraint), zonder bruikbaar wachtwoord;
+  - niet te bewerken via gebruikersbeheer.
+- Rol zegt niets over menselijkheid. Elke functie die limieten, budgetten, autonomiemodi, providerinstellingen, accountkoppelingen of gebruikers wijzigt, roept `assertHuman()` aan en weigert een `AGENT`- of `SYSTEM`-actor, ook met owner-rol.
+- Automatische actoren mogen een kill switch alleen **aanzetten** (automatische pauze), nooit hervatten.
+- De autopilotmodule importeert geen van die functies (statisch getest).
+- Wat de autopilot wel doet, staat met reden in de auditlog (`autopilot.run`).
 
 ## Secrets management
 

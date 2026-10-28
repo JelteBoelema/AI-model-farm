@@ -11,7 +11,9 @@ import { computeCost, parsePricing } from "../providers/pricing";
 import { acquireRateLimit, autoPauseProvider, createAdapter, type ProviderConfig } from "../providers/registry";
 import { ProviderError, type AttemptUsage, type GenerationRequest, type GenerationResult, type ProviderAdapter } from "../providers/types";
 import { db } from "../db";
+import { checkBudgetsAfterCharge, pauseForBudget } from "./budget-watch";
 import { releaseReservation, reserveBudget, settleCharge } from "./cost-manager";
+import { BudgetBlockedError } from "./spend-guard";
 
 export interface Attribution {
   creatorId?: string | null;
@@ -96,6 +98,7 @@ async function book(input: ExecuteInput, reservationId: string | null, amountMic
     },
     reservationId,
   );
+  await checkBudgetsAfterCharge({ providerId: input.provider.id, creatorId: input.attribution.creatorId, campaignId: input.attribution.campaignId });
 }
 
 interface Prepared {
@@ -124,6 +127,10 @@ async function reserve(input: ExecuteInput, estimateMicros: bigint | null, ttlMs
     contentItemId: input.attribution.contentItemId,
     generationJobId: input.attribution.generationJobId,
     ttlMs,
+  }).catch(async (err: unknown) => {
+    // A job that does not fit a budget with auto-pause pauses that budget's scope.
+    if (err instanceof BudgetBlockedError && err.policy) await pauseForBudget(err.policy, "The next job would exceed it.");
+    throw err;
   });
   return held.id;
 }

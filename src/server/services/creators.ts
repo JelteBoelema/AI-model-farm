@@ -14,6 +14,7 @@ import { assertTransition } from "@/lib/state-machines";
 import { db } from "../db";
 import { recordAudit } from "../audit";
 import { DomainError } from "../errors";
+import { assertHuman } from "./policy";
 import type { ActingUser } from "./users";
 
 export const LIVE_PUBLISHING_STATUSES = ["SCHEDULED", "QUEUED", "PUBLISHING", "AWAITING_CONFIRMATION"] as const;
@@ -208,6 +209,7 @@ export async function duplicateCreator(by: ActingUser, creatorId: string) {
 }
 
 export async function setAutonomyMode(by: ActingUser, creatorId: string, mode: AutonomyMode) {
+  assertHuman(by.actor);
   require(by, "creators:edit");
   const creator = await db.creator.findUnique({ where: { id: creatorId }, select: { autonomyMode: true, status: true } });
   if (!creator) throw new DomainError("Creator not found");
@@ -225,6 +227,7 @@ export async function setAutonomyMode(by: ActingUser, creatorId: string, mode: A
  * raising or removing one increases what may be spent (owner only).
  */
 export async function setCreatorBudget(by: ActingUser, creatorId: string, period: BudgetPeriod, limitMicros: bigint | null) {
+  assertHuman(by.actor);
   if (limitMicros !== null && limitMicros < 0n) throw new DomainError("A budget cannot be negative");
   const creator = await db.creator.findUnique({ where: { id: creatorId }, select: { id: true } });
   if (!creator) throw new DomainError("Creator not found");

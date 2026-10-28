@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { toMicros } from "@/lib/money";
+import { findActivePause, setControlSwitch } from "@/server/controls";
 import { db } from "@/server/db";
 import { resetEnvCache } from "@/server/env";
 import { MockImageAdapter } from "@/server/providers/adapters/mock";
@@ -19,11 +20,11 @@ import {
   resumeProduction,
   startProduction,
 } from "@/server/services/content";
-import { runContentStepJob, scheduleNextStep } from "@/server/services/content-pipeline";
+import { scheduleNextStep } from "@/server/services/content-pipeline";
 import { releaseReservation, reserveBudget } from "@/server/services/cost-manager";
 import { BudgetBlockedError } from "@/server/services/spend-guard";
-import { STARTER_PROMPTS } from "../../prisma/starter-prompts";
-import { acting, makeCreator, makeUser, uid } from "./helpers";
+import { acting, makeCreator, makeUser } from "./helpers";
+import { drain, readyCreator } from "./pipeline-helpers";
 
 // ── Fake paid providers (real-mode tests; they never touch the network) ──
 
@@ -99,51 +100,6 @@ async function makeRealProvidersReady() {
   const images = await db.aiProvider.findUniqueOrThrow({ where: { key: "openai-images" } });
   await setProviderPricing(admin, images.id, { currency: "EUR", source: "https://example.com/images", updatedAt: "2026-10-01T00:00:00.000Z", models: { "gpt-image-2": { per_image: "0.04" } } });
   await verifyProvider(admin, images.id);
-}
-
-/** Creator with an approved character and creator-scoped copies of the starter templates. */
-async function readyCreator() {
-  const creator = await makeCreator();
-  await db.characterProfile.create({ data: { creatorId: creator.id, version: 1, status: "APPROVED", identityPrompt: "Synthetic adult character, short dark hair", approvedAt: new Date() } });
-  for (const p of STARTER_PROMPTS.filter((t) => t.kind !== "SAFETY_RULES")) {
-    await db.promptTemplate.create({
-      data: {
-        key: `${p.key}.${uid()}`,
-        name: p.name,
-        kind: p.kind,
-        scope: "CREATOR",
-        creatorId: creator.id,
-        versions: {
-          create: {
-            version: 1,
-            status: "PUBLISHED",
-            publishedAt: new Date(),
-            body: p.body,
-            variablesSchema: { version: 1, variables: p.variables.map((v) => ({ label: "", required: true, description: "", options: [], ...v })) },
-          },
-        },
-      },
-    });
-  }
-  return creator;
-}
-
-const signal = () => new AbortController().signal;
-
-/** Runs queued jobs of an item in-process (as the worker would) until nothing is queued. */
-async function drain(itemId: string, attempts = 1) {
-  for (let round = 0; round < 40; round++) {
-    const queued = await db.generationJob.findMany({ where: { contentItemId: itemId, status: "QUEUED" }, orderBy: { createdAt: "asc" } });
-    if (queued.length === 0) return;
-    for (const j of queued) {
-      for (let a = 0; a < attempts; a++) {
-        const res = await runContentStepJob({ data: { jobId: j.id }, attemptsMade: a, opts: { attempts } }, signal()).catch((e: unknown) => e);
-        const now = await db.generationJob.findUniqueOrThrow({ where: { id: j.id } });
-        if (now.status !== "QUEUED" || !(res instanceof Error)) break;
-      }
-    }
-  }
-  throw new Error("pipeline did not settle");
 }
 
 let op: ReturnType<typeof acting>;
@@ -287,7 +243,10 @@ describe("content pipeline with paid providers", () => {
     expect(await db.costLedger.count({ where: { contentItemId: item.id } })).toBe(0);
     expect(await db.budgetReservation.count({ where: { contentItemId: item.id, status: "HELD" } })).toBe(0);
 
+    // The block paused the farm-wide generation chain (auto-pause); a person resumes it.
+    expect(await findActivePause({ chain: "generation" })).toMatchObject({ scope: "ALL_GENERATION", reason: expect.stringContaining("Budget limit reached") });
     await setGlobalBudget("100");
+    await setControlSwitch(op.actor, { scope: "ALL_GENERATION", paused: false, reason: "budget raised" });
     await resumeProduction(op, item.id);
     await drain(item.id);
     const done = await db.contentItem.findUniqueOrThrow({ where: { id: item.id } });

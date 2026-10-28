@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { UnrecoverableError, type Worker } from "bullmq";
 import { sniffImage } from "@/lib/image-meta";
 import { toMicros } from "@/lib/money";
-import { SYSTEM_ACTOR } from "@/server/audit";
 import { findActivePause, setControlSwitch } from "@/server/controls";
 import { db } from "@/server/db";
 import { resetEnvCache } from "@/server/env";
@@ -218,7 +217,7 @@ describe("paid execution", () => {
     expect(await findActivePause({ chain: "generation", providerId: p.id })).toMatchObject({ scope: "PROVIDER", reason: expect.stringContaining("Automatic") });
     expect(await db.notification.findFirst({ where: { type: "provider.auto_paused" } })).not.toBeNull();
     await expect(run(`t:${uid()}`)).rejects.toThrow(/Paused/);
-    await setControlSwitch(SYSTEM_ACTOR, { scope: "PROVIDER", targetId: p.id, paused: false, reason: "key fixed" });
+    await setControlSwitch(admin, { scope: "PROVIDER", targetId: p.id, paused: false, reason: "key fixed" });
     behaviour = async (req) => ({ outputs: [{ kind: "text", text: "ok" }], attempts: [{ model: req.model, usage: { input_mtok: 1000, output_mtok: 500 } }], servedBy: req.model, notes: [] });
   });
 

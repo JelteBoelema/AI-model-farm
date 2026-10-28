@@ -28,7 +28,18 @@ export interface ActingUser {
   actor: Actor;
 }
 
+/** Users and roles are managed by people; the autopilot's service identity is never editable. */
+function assertPersonManaging(by: ActingUser) {
+  if (by.actor.type !== "USER") throw new UserServiceError("Only a person can manage users");
+}
+
+async function assertNotSystemUser(userId: string) {
+  const u = await db.user.findUnique({ where: { id: userId }, select: { isSystem: true } });
+  if (u?.isSystem) throw new UserServiceError("The autopilot's service identity cannot be changed");
+}
+
 export async function createUser(by: ActingUser, input: z.infer<typeof createUserSchema>) {
+  assertPersonManaging(by);
   const data = createUserSchema.parse(input);
   if (!canAssignRole(by.role, data.role)) throw new UserServiceError("You cannot assign this role");
   const exists = await db.user.findUnique({ where: { email: data.email }, select: { id: true } });
@@ -52,7 +63,9 @@ async function assertNotLastOwner(userId: string) {
 }
 
 export async function changeRole(by: ActingUser, userId: string, role: UserRole) {
+  assertPersonManaging(by);
   roleSchema.parse(role);
+  await assertNotSystemUser(userId);
   if (userId === by.id) throw new UserServiceError("You cannot change your own role");
   const target = await db.user.findUnique({ where: { id: userId }, select: { role: true } });
   if (!target) throw new UserServiceError("User not found");
@@ -66,6 +79,8 @@ export async function changeRole(by: ActingUser, userId: string, role: UserRole)
 }
 
 export async function setUserDisabled(by: ActingUser, userId: string, disabled: boolean) {
+  assertPersonManaging(by);
+  await assertNotSystemUser(userId);
   if (userId === by.id) throw new UserServiceError("You cannot disable your own account");
   const target = await db.user.findUnique({ where: { id: userId }, select: { role: true } });
   if (!target) throw new UserServiceError("User not found");

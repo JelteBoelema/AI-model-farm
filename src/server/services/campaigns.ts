@@ -9,6 +9,7 @@ import { recordAudit } from "../audit";
 import { setControlSwitch } from "../controls";
 import { db } from "../db";
 import { DomainError } from "../errors";
+import { assertHuman } from "./policy";
 import type { ActingUser } from "./users";
 
 function require(by: ActingUser, permission: Permission) {
@@ -75,6 +76,7 @@ const ACTIONS: Record<string, { to: CampaignStatus; permission: Permission }> = 
 export async function changeCampaignStatus(by: ActingUser, campaignId: string, action: keyof typeof ACTIONS, reason = "") {
   const spec = ACTIONS[action];
   if (!spec) throw new DomainError("Unknown action");
+  assertHuman(by.actor);
   require(by, spec.permission);
   const campaign = await db.campaign.findUnique({ where: { id: campaignId } });
   if (!campaign) throw new DomainError("Campaign not found");
@@ -91,6 +93,7 @@ export async function changeCampaignStatus(by: ActingUser, campaignId: string, a
 
 /** Same rule as creator budgets: lowering or setting a cap is an admin decision; raising or removing one is the owner's. */
 export async function setCampaignBudget(by: ActingUser, campaignId: string, period: BudgetPeriod, limitMicros: bigint | null) {
+  assertHuman(by.actor);
   if (limitMicros !== null && limitMicros < 0n) throw new DomainError("A budget cannot be negative");
   if (!(await db.campaign.findUnique({ where: { id: campaignId }, select: { id: true } }))) throw new DomainError("Campaign not found");
   const existing = await db.budgetPolicy.findFirst({ where: { scope: "CAMPAIGN", targetId: campaignId, period } });

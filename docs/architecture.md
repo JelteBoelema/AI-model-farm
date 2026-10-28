@@ -197,7 +197,36 @@ Mockcalls kosten aantoonbaar € 0, reserveren niets en worden niet geboekt.
 
 ## Autonomie (fase 8)
 
-Standaardmodus `CONTROLLED_AUTONOMY`. Het systeem mag binnen `autonomy_policies` en `budget_policies` zelfstandig plannen, genereren, selecteren, inplannen en publiceren. Er bestaat **geen schrijfpad** van agents naar beleidsregels: die zijn alleen via server actions met `policies:manage`/`budgets:raise` (owner) te wijzigen, en een verhoging loopt via een `approvals`-record. Kill switches bestaan per creator, campagne, provider en voor de hele generatie- of publicatieketen.
+**Beleid.**
+- `autonomy_policies` bestaan op drie niveaus: `GLOBAL`, `CREATOR` en `CAMPAIGN`.
+- `policy.effectivePolicy()` neemt per limiet de strengste waarde en onthoudt welke scope die zet.
+- Zelfgoedkeuring (`auto_approve_min_score`) bestaat alleen als het farm-brede beleid haar toestaat; een scope kan de lat alleen verhogen. `require_human_approval` op welk niveau ook zet haar uit.
+
+**Controles per stap.**
+- `checkPolicy()` draait vóór elke contentstap:
+  - te lang lopende workflow → `BLOCKED_POLICY`;
+  - gelijktijdigheid bereikt → de job wordt uitgesteld (nieuwe queue-id, 15 s).
+- De spend guard toetst kosten per job, `generationLimit()` toetst het aantal generaties.
+- `attemptsFor()` begrenst de retries per stap.
+- `conflictsFor()` toetst posts per dag.
+
+**Budgetbewaking.**
+- `budget-watch.ts` draait na elke boeking. Bij `warn_at_percent` volgt een melding; bij de limiet zet het een `control_switch` op de scope van het budget.
+- Meldingen worden ontdubbeld via `notifications.dedupe_key` (per budget per periode).
+- Een geblokkeerde reservering pauzeert ook.
+
+**Menselijke beslissingen.**
+- Alle wijzigingen aan limieten, budgetten, autonomiemodus, providers, accountkoppelingen en gebruikers roepen `assertHuman(actor)` aan.
+- Een kill switch hervatten kan alleen een `USER`-actor; pauzeren mag iedereen.
+- `policy-admin.ts` bepaalt per wijziging of zij versoepelt (`loosenedFields`):
+  - aanscherpen: admin, direct;
+  - versoepelen: owner, direct en vastgelegd als goedgekeurde `approval`, anders een `PENDING`-verzoek (`BUDGET_INCREASE` / `POLICY_CHANGE`) dat de owner beslist.
+
+**Autopilot.**
+- `autopilot.ts` draait als `maintenance`-job `autopilot.run`.
+- Identiteit: een `users`-rij met `is_system = true`, altijd `disabled_at` (CHECK-constraint), rol OPERATOR, actor `AGENT`.
+- Hij gebruikt alleen operatoracties: `createContent`, `approveContent` en `schedulePublication`.
+- Elke run is een `autopilot.run`-auditregel met per creator wat er gebeurde en waarom iets werd overgeslagen.
 
 ## Schaalbaarheid
 
