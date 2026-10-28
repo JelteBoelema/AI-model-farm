@@ -22,7 +22,9 @@ Bron: `prisma/schema.prisma` en `prisma/migrations/*/migration.sql`. Alle 17 ver
 | `character_references` | Canonieke referentiebeelden per profielversie | koppelt naar `media_assets` met `RESTRICT` |
 | `social_accounts` | Platformaccount per creator: scopes, geverifieerde capabilities, tokenverloop, posts/dag-limiet | `(platform, external_account_id)` en `(platform, handle)` uniek; alleen `credential_ref` |
 | `prompt_templates` | Template per soort (`IMAGE`, `VIDEO`, `SCRIPT`, `CAPTION`, …) en scope (globaal/creator/campagne) | `key` uniek |
-| `prompt_versions` | Onveranderlijke gepubliceerde versies + variabelenschema + standaardparameters | `(template_id, version)` uniek; jobs verwijzen naar de versie-ID |
+| `prompt_versions` | Onveranderlijke gepubliceerde versies + variabelenschema + standaardparameters | `(template_id, version)` uniek; max. één `DRAFT` per template; trigger blokkeert wijzigen/verwijderen van niet-concepten en het terughalen van verouderde versies |
+| `prompt_test_runs` | Vastgelegde test van een promptversie: variabelen, gerenderde prompt, toegevoegde regels, output, provider, mock-vlag, kosten (`NULL` = onbekend), duur | per versie en tijd geïndexeerd |
+| `campaign_prompt_pins` | Campagne pint één gepubliceerde versie per template | PK `(campaign_id, template_id)` |
 | `ai_providers` | Providerregister: capabilities, status (`NOT_CONFIGURED/ACTIVE/DEGRADED/DISABLED`), mock-vlag, prijstabel, prioriteit | lege prijstabel ⇒ betaald gebruik geblokkeerd |
 | `campaigns` + `campaign_creators` | Campagnes over meerdere creators | n:m |
 | `content_items` | Eén publiceerbaar stuk content door de pipeline | status-machine; `generation_count ≤ max_generations` (check) |
@@ -78,6 +80,7 @@ erDiagram
 | `creators.content_pillars` | `[{ name, description }]`, 1–8 |
 | `creators.publishing_schedule` | `{ slots: [{ platform, weekday (1 = ma), time "HH:MM" }] }`, uniek per slot, in `creators.timezone` |
 | `character_profiles.appearance` | `{ ageRange, build, skinTone, hair, eyes, face, distinguishingFeatures, wardrobe }` |
+| `prompt_versions.variables_schema` | `{ version: 1, variables: [{ name, label, type, required, description, options, min, max, maxLength, default }] }` |
 | `character_profiles.consistency_strategy` | `{ referenceWeight 0–1, seed | null, notes }` |
 
 `jsonb` bewaart sleutels niet in invoervolgorde; wijzigingsdetectie gebruikt daarom een sleutelvolgorde-onafhankelijke vergelijking.

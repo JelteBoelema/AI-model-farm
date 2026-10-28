@@ -1,10 +1,11 @@
 // Seed: idempotent. Base seed installs the owner account, provider registry, safe default limits and
 // starter prompt templates. `--demo` adds clearly flagged demo creators/content (is_demo = true).
 
-import { PrismaClient, type Prisma } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "../src/server/auth/password";
 import { syncProviderRegistry } from "../src/server/providers/catalog";
 import { toMicros } from "../src/lib/money";
+import { STARTER_PROMPTS } from "./starter-prompts";
 
 const db = new PrismaClient();
 const SEED_ACTOR = { actorType: "SYSTEM" as const, actorLabel: "seed" };
@@ -44,37 +45,6 @@ async function seedLimits() {
   }
 }
 
-const STARTER_PROMPTS: { key: string; name: string; kind: Prisma.PromptTemplateCreateInput["kind"]; body: string; variables: string[] }[] = [
-  {
-    key: "image.lifestyle.default",
-    name: "Lifestyle photo",
-    kind: "IMAGE",
-    body: "{{identity_prompt}}. Candid lifestyle photograph, {{scene}}, natural light, {{camera}}. Aspect ratio {{aspect_ratio}}.",
-    variables: ["identity_prompt", "scene", "camera", "aspect_ratio"],
-  },
-  {
-    key: "script.short_video.default",
-    name: "Short video script",
-    kind: "SCRIPT",
-    body: "Write a {{duration_seconds}}-second vertical video script for {{creator_name}} ({{tone_of_voice}}) about {{topic}}. Return scenes with action, dialogue and on-screen text.",
-    variables: ["duration_seconds", "creator_name", "tone_of_voice", "topic"],
-  },
-  {
-    key: "caption.default",
-    name: "Caption",
-    kind: "CAPTION",
-    body: "Write a {{platform}} caption in {{language}} for {{creator_name}} about {{topic}}. Max {{max_chars}} characters. Include the AI disclosure: {{ai_disclosure}}.",
-    variables: ["platform", "language", "creator_name", "topic", "max_chars", "ai_disclosure"],
-  },
-  {
-    key: "safety.rules.global",
-    name: "Global safety rules",
-    kind: "SAFETY_RULES",
-    body: "Never depict or imitate real, identifiable people. No minors. No medical, financial or political claims. Follow platform AI-content labelling rules.",
-    variables: [],
-  },
-];
-
 async function seedPrompts() {
   for (const p of STARTER_PROMPTS) {
     const exists = await db.promptTemplate.findUnique({ where: { key: p.key } });
@@ -91,7 +61,7 @@ async function seedPrompts() {
             status: "PUBLISHED",
             publishedAt: new Date(),
             body: p.body,
-            variablesSchema: { type: "object", required: p.variables, properties: Object.fromEntries(p.variables.map((v) => [v, { type: "string" }])) },
+            variablesSchema: { version: 1, variables: p.variables.map((v) => ({ label: "", required: true, description: "", options: [], ...v })) },
             changelog: "Starter template",
           },
         },

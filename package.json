@@ -51,6 +51,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "geist": "^1.8.2",
+    "handlebars": "4.7.10",
     "ioredis": "^5.11.1",
     "lucide-react": "^1.62.0",
     "next": "15.5.28",

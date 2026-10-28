@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   // Reference images are uploaded through server actions (15 MB file limit + form overhead).
   experimental: { serverActions: { bodySizeLimit: "16mb" } },
-  serverExternalPackages: ["bullmq", "ioredis", "pino", "@prisma/client"],
+  serverExternalPackages: ["bullmq", "ioredis", "pino", "@prisma/client", "handlebars"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

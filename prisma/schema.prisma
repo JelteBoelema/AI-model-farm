@@ -291,30 +291,30 @@ model User {
 // ─────────────────────────────── Creators ───────────────────────────────
 
 model Creator {
-  id                String        @id @default(uuid()) @db.Uuid
-  slug              String        @unique
-  name              String
-  niche             String
-  targetAudience    String        @map("target_audience")
-  language          String // BCP-47, e.g. "nl-NL"
-  targetRegions     String[]      @map("target_regions") // ISO-3166 codes
-  personality       String
-  toneOfVoice       String        @map("tone_of_voice")
-  backstory         String // always fictional
-  contentPillars    Json          @default("[]") @map("content_pillars")
-  contentFormats    ContentFormat[] @map("content_formats")
-  promptSettings    Json          @default("{}") @map("prompt_settings")
-  publishingSchedule Json         @default("{}") @map("publishing_schedule")
-  timezone          String        @default("Europe/Amsterdam")
-  autonomyMode      AutonomyMode  @default(CONTROLLED_AUTONOMY) @map("autonomy_mode")
-  status            CreatorStatus @default(DRAFT)
-  isDemo            Boolean       @default(false) @map("is_demo")
-  createdById       String?       @map("created_by_id") @db.Uuid
-  archivedAt        DateTime?     @map("archived_at") @db.Timestamptz(3)
-  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id                 String          @id @default(uuid()) @db.Uuid
+  slug               String          @unique
+  name               String
+  niche              String
+  targetAudience     String          @map("target_audience")
+  language           String // BCP-47, e.g. "nl-NL"
+  targetRegions      String[]        @map("target_regions") // ISO-3166 codes
+  personality        String
+  toneOfVoice        String          @map("tone_of_voice")
+  backstory          String // always fictional
+  contentPillars     Json            @default("[]") @map("content_pillars")
+  contentFormats     ContentFormat[] @map("content_formats")
+  promptSettings     Json            @default("{}") @map("prompt_settings")
+  publishingSchedule Json            @default("{}") @map("publishing_schedule")
+  timezone           String          @default("Europe/Amsterdam")
+  autonomyMode       AutonomyMode    @default(CONTROLLED_AUTONOMY) @map("autonomy_mode")
+  status             CreatorStatus   @default(DRAFT)
+  isDemo             Boolean         @default(false) @map("is_demo")
+  createdById        String?         @map("created_by_id") @db.Uuid
+  archivedAt         DateTime?       @map("archived_at") @db.Timestamptz(3)
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  createdBy         User?              @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy         User?               @relation(fields: [createdById], references: [id], onDelete: SetNull)
   characterProfiles CharacterProfile[]
   socialAccounts    SocialAccount[]
   promptTemplates   PromptTemplate[]
@@ -388,7 +388,7 @@ model SocialAccount {
   createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  creator            Creator              @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  creator            Creator             @relation(fields: [creatorId], references: [id], onDelete: Restrict)
   publishingJobs     PublishingJob[]
   analyticsSnapshots AnalyticsSnapshot[]
 
@@ -413,9 +413,10 @@ model PromptTemplate {
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  creator  Creator?        @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-  campaign Campaign?       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  creator  Creator?            @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  campaign Campaign?           @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   versions PromptVersion[]
+  pins     CampaignPromptPin[]
 
   @@index([kind, scope])
   @@map("prompt_templates")
@@ -435,11 +436,63 @@ model PromptVersion {
   publishedAt     DateTime?           @map("published_at") @db.Timestamptz(3)
   createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  template       PromptTemplate  @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  template       PromptTemplate      @relation(fields: [templateId], references: [id], onDelete: Restrict)
   generationJobs GenerationJob[]
+  testRuns       PromptTestRun[]
+  campaignPins   CampaignPromptPin[]
 
   @@unique([templateId, version])
   @@map("prompt_versions")
+}
+
+enum PromptTestStatus {
+  RENDERED // prompt rendered only; no provider call (e.g. visual prompts before phase 4)
+  SUCCEEDED
+  FAILED
+}
+
+// A test of one prompt version with concrete variables. Keeps the exact rendered prompt and output.
+model PromptTestRun {
+  id              String           @id @default(uuid()) @db.Uuid
+  promptVersionId String           @map("prompt_version_id") @db.Uuid
+  creatorId       String?          @map("creator_id") @db.Uuid
+  campaignId      String?          @map("campaign_id") @db.Uuid
+  variables       Json             @default("{}")
+  renderedPrompt  String           @map("rendered_prompt")
+  safetyRules     String?          @map("safety_rules")
+  status          PromptTestStatus
+  providerKey     String?          @map("provider_key")
+  isMock          Boolean          @default(false) @map("is_mock")
+  output          String?
+  error           String?
+  // Cost of this test. NULL means unknown, never zero; mock runs record 0 with is_mock = true.
+  costMicros      BigInt?          @map("cost_micros")
+  costBasis       CostBasis?       @map("cost_basis")
+  durationMs      Int?             @map("duration_ms")
+  createdById     String?          @map("created_by_id") @db.Uuid
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  promptVersion PromptVersion @relation(fields: [promptVersionId], references: [id], onDelete: Restrict)
+
+  @@index([promptVersionId, createdAt])
+  @@map("prompt_test_runs")
+}
+
+// Campaign pins a specific published version of a template; generations for the campaign use it
+// until someone explicitly re-pins, so template updates never change an active campaign silently.
+model CampaignPromptPin {
+  campaignId      String   @map("campaign_id") @db.Uuid
+  templateId      String   @map("template_id") @db.Uuid
+  promptVersionId String   @map("prompt_version_id") @db.Uuid
+  pinnedById      String?  @map("pinned_by_id") @db.Uuid
+  pinnedAt        DateTime @default(now()) @map("pinned_at") @db.Timestamptz(3)
+
+  campaign      Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  template      PromptTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  promptVersion PromptVersion  @relation(fields: [promptVersionId], references: [id], onDelete: Restrict)
+
+  @@id([campaignId, templateId])
+  @@map("campaign_prompt_pins")
 }
 
 // ─────────────────────────────── Providers ───────────────────────────────
@@ -483,6 +536,7 @@ model Campaign {
   creators        CampaignCreator[]
   contentItems    ContentItem[]
   promptTemplates PromptTemplate[]
+  promptPins      CampaignPromptPin[]
   costEntries     CostLedger[]
   reservations    BudgetReservation[]
 
@@ -753,16 +807,16 @@ model BudgetReservation {
 }
 
 model BudgetPolicy {
-  id             String       @id @default(uuid()) @db.Uuid
-  scope          BudgetScope
-  targetId       String?      @map("target_id") @db.Uuid // null for GLOBAL
-  period         BudgetPeriod
-  limitMicros    BigInt       @map("limit_micros")
-  warnAtPercent  Int          @default(80) @map("warn_at_percent")
-  autoPause      Boolean      @default(true) @map("auto_pause")
-  updatedById    String?      @map("updated_by_id") @db.Uuid
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id            String       @id @default(uuid()) @db.Uuid
+  scope         BudgetScope
+  targetId      String?      @map("target_id") @db.Uuid // null for GLOBAL
+  period        BudgetPeriod
+  limitMicros   BigInt       @map("limit_micros")
+  warnAtPercent Int          @default(80) @map("warn_at_percent")
+  autoPause     Boolean      @default(true) @map("auto_pause")
+  updatedById   String?      @map("updated_by_id") @db.Uuid
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   // Uniqueness per (scope, target, period) incl. NULL target is enforced by an index in the migration SQL.
   @@map("budget_policies")
@@ -770,19 +824,19 @@ model BudgetPolicy {
 
 // Hard autonomy limits. Only humans with OWNER/ADMIN role may change them; agents have no write path.
 model AutonomyPolicy {
-  id                     String      @id @default(uuid()) @db.Uuid
-  scope                  PolicyScope
-  targetId               String?     @map("target_id") @db.Uuid
-  maxCostPerJobMicros    BigInt?     @map("max_cost_per_job_micros")
-  maxGenerationsPerItem  Int?        @map("max_generations_per_item")
-  maxConcurrentJobs      Int?        @map("max_concurrent_jobs")
-  maxPostsPerDay         Int?        @map("max_posts_per_day")
-  maxWorkflowMinutes     Int?        @map("max_workflow_minutes")
-  maxRetries             Int?        @map("max_retries")
-  requireHumanApproval   Boolean     @default(false) @map("require_human_approval")
-  updatedById            String?     @map("updated_by_id") @db.Uuid
-  createdAt              DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt              DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id                    String      @id @default(uuid()) @db.Uuid
+  scope                 PolicyScope
+  targetId              String?     @map("target_id") @db.Uuid
+  maxCostPerJobMicros   BigInt?     @map("max_cost_per_job_micros")
+  maxGenerationsPerItem Int?        @map("max_generations_per_item")
+  maxConcurrentJobs     Int?        @map("max_concurrent_jobs")
+  maxPostsPerDay        Int?        @map("max_posts_per_day")
+  maxWorkflowMinutes    Int?        @map("max_workflow_minutes")
+  maxRetries            Int?        @map("max_retries")
+  requireHumanApproval  Boolean     @default(false) @map("require_human_approval")
+  updatedById           String?     @map("updated_by_id") @db.Uuid
+  createdAt             DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("autonomy_policies")
 }

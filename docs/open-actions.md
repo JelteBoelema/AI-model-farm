@@ -1,0 +1,33 @@
+# Openstaande acties
+
+Acties voor de eigenaar die bewust zijn uitgesteld tot de laatste fase, als het platform af is. Claude werkt deze lijst bij bij elke fase.
+
+## 1. Pull requests reviewen en mergen
+
+Fase 3 bevat een databasemigratie (`prompt_studio`); die wordt bij deployment automatisch toegepast door de `migrate`-taak.
+
+De fasen worden gestapeld opgeleverd: elke fase-branch bouwt voort op de vorige. Merge ze **in volgorde** en klik na elke merge op *Delete branch*: GitHub zet de basis van de volgende PR dan automatisch op `main` (anders handmatig: *Edit → base: main*).
+
+| Fase | Pull request | Basis | Status |
+|---|---|---|---|
+| 2 — Creator Engine | [#1](https://github.com/JelteBoelema/AI-model-farm/pull/1) | `main` | wacht op review |
+| 3 — Prompt Studio | [#2](https://github.com/JelteBoelema/AI-model-farm/pull/2) | `phase-2-creator-engine` | wacht op review (na #1) |
+
+Per PR: beschrijving lezen, de CI-checks moeten groen zijn, eventueel lokaal draaien (`README.md` → *Snel starten*), dan *Merge*.
+
+## 2. Meta-app voor Instagram (nodig voor fase 7)
+
+App review bij Meta kan weken duren. De stappen (namen van permissies en schermen op het moment van indienen opnieuw controleren in de Meta-documentatie):
+
+1. **Meta Business-account** (business.facebook.com) aanmaken of gebruiken, en de bedrijfsverificatie afronden.
+2. **Meta for Developers**-account en een nieuwe app van het type *Business*; product **Instagram** (API met Instagram Login) toevoegen.
+3. Per creator een **Instagram professioneel account** (Creator of Business) aanmaken. Vermeld in de bio dat het om een AI-gegenereerd personage gaat.
+4. In de app de redirect-URL van het platform registreren: `https://<jouw-domein>/api/social/instagram/callback` (exacte route volgt in fase 7).
+5. **App review** aanvragen voor de publicatie- en inzichtpermissies (o.a. basisprofiel, content publiceren, inzichten). Meta vraagt een schermopname van de flow; die maken we in fase 7 met de werkende koppeling.
+6. Privacybeleid- en gebruiksvoorwaarden-URL's publiceren (vereist voor review).
+7. App-ID en app-secret **niet** delen in chat of code: opslaan in AWS Secrets Manager (`creatorfarm/prod/meta-app`); het platform leest ze via die referentie.
+
+## Overige configuratie (staat al in de documentatie)
+
+- AI-provider-sleutels (Anthropic, beeld- en videoprovider): zie `README.md` → *Ontbrekende configuratie*.
+- AWS-omgeving in Frankfurt en GitHub-deploymentvariabelen: zie `docs/deployment.md`.
