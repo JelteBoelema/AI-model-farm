@@ -32,6 +32,13 @@ export async function findActivePause(ctx: PauseContext): Promise<ActivePause | 
   if (ctx.campaignId) targets.push({ scope: "CAMPAIGN", targetId: ctx.campaignId });
   if (ctx.providerId) targets.push({ scope: "PROVIDER", targetId: ctx.providerId });
 
+  if (ctx.creatorId) {
+    const creator = await db.creator.findUnique({ where: { id: ctx.creatorId }, select: { status: true } });
+    if (!creator) return { scope: "CREATOR", targetId: ctx.creatorId, reason: "Creator not found" };
+    if (creator.status !== "ACTIVE")
+      return { scope: "CREATOR", targetId: ctx.creatorId, reason: `Creator is ${creator.status.toLowerCase()}` };
+  }
+
   const hit = await db.controlSwitch.findFirst({
     where: { paused: true, OR: targets.map((t) => ({ scope: t.scope, targetId: t.targetId })) },
     select: { scope: true, targetId: true, reason: true },

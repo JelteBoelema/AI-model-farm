@@ -3,9 +3,10 @@ import { z } from "zod";
 import { canAssignRole } from "@/lib/rbac";
 import { db } from "../db";
 import { recordAudit, type Actor } from "../audit";
+import { DomainError } from "../errors";
 import { hashPassword, passwordSchema } from "../auth/password";
 
-export class UserServiceError extends Error {
+export class UserServiceError extends DomainError {
   constructor(message: string) {
     super(message);
     this.name = "UserServiceError";

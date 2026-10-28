@@ -48,6 +48,10 @@ export function actorOf(user: CurrentUser): Actor {
   return { type: "USER", id: user.id, label: user.email };
 }
 
+export function actingUserOf(user: CurrentUser) {
+  return { id: user.id, role: user.role, actor: actorOf(user) };
+}
+
 export async function requestMeta() {
   const h = await headers();
   return {

@@ -1,5 +1,9 @@
 # Implementatieplan
 
+**Besluiten**
+- 28-10-2026 — Cloud: AWS `eu-central-1` (Frankfurt) bevestigd.
+- 28-10-2026 — Eerste publicatie-integratie in fase 7: Instagram.
+
 Elke fase eindigt met werkende functionaliteit, groene tests (unit, integratie, e2e) en bijgewerkte documentatie. Externe integraties worden pas als "werkend" gemarkeerd na een geslaagde test met echte credentials; tot die tijd draaien ze tegen expliciete mockadapters.
 
 ## Fase 1 — Foundation ✅ (opgeleverd)
@@ -30,11 +34,30 @@ Elke fase eindigt met werkende functionaliteit, groene tests (unit, integratie, 
 - [x] Health endpoints rapporteren DB/Redis/opslag zonder details te lekken. *(e2e + integratie)*
 - [x] Productieconfiguratie weigert dev-secrets, lokale opslag en env-secrets. *(unit)*
 
-## Fase 2 — Creator Engine
+## Fase 2 — Creator Engine ✅ (opgeleverd)
 
-**Inhoud** — creator CRUD (aanmaken, bewerken, dupliceren, pauzeren/hervatten, archiveren), briefingwizard (Claude via mockadapter tot fase 4), contentpijlers/formats/schema, Character Studio (uiterlijk-editor, identiteitsprompt, versiebeheer), upload en goedkeuring van referentiebeelden met rechtenregistratie, likeness-attestatie.
+**Inhoud**
+- Creatorbeheer: aanmaken, bewerken, dupliceren, activeren, pauzeren, hervatten en archiveren — volgens de statusmachine, met compare-and-set-updates en audit.
+- Briefingwizard: van creatieve briefing naar een volledig, bewerkbaar voorstel (profiel + karakterconcept). Tot fase 4 komt het voorstel van een deterministische mockgenerator; elk veld is gemarkeerd met `[Mock]` en de UI toont een *Mock*-badge. Generatoroutput wordt altijd tegen hetzelfde schema gevalideerd als handmatige invoer.
+- Profiel: niche, doelgroep, taal (BCP-47), regio's (ISO-3166, gevalideerd), persoonlijkheid, tone of voice, fictief achtergrondverhaal, contentpijlers, formats, tijdzone en publicatieschema (platform/dag/tijd).
+- Per-creator budget (dag/maand) en autonomiemodus, met asymmetrische rechten: beperken mag een admin, verruimen alleen een owner (budget) of admin (autonomie).
+- Character Studio: geversioneerde identiteit (gestructureerd uiterlijk, identiteitsprompt, negatieve prompt, consistentiestrategie), referentiebeelden uploaden met rechtenregistratie, canoniek markeren, goedkeuren met likeness-attestatie. Een nieuwe conceptversie neemt de referenties van de goedgekeurde versie over; goedkeuren zet de vorige versie in dezelfde transactie op `SUPERSEDED`.
+- Uploadbeveiliging: type op basis van magic bytes (PNG/JPEG/WebP, nooit op extensie of browser-MIME), 512–8192 px, max. 15 MB, SHA-256-checksum, deduplicatie per creator, opslagobject opgeruimd als de databasetransactie mislukt.
+- Pauzecontrole: een creator die niet `ACTIVE` is (concept, gepauzeerd, gearchiveerd) blokkeert generatie en publicatie via `assertNotPaused`.
 
-**Acceptatie** — creator-levenscyclus volgt de statusmachine en wordt geaudit; goedkeuren van een nieuwe karakterversie zet de vorige op `SUPERSEDED` in één transactie; uploads krijgen checksum, MIME-validatie en worden niet publiek bereikbaar; pauzeren van een creator blokkeert zijn jobs (integratietest).
+**Regels die de service afdwingt**
+- Activeren kan alleen met een goedgekeurd karakterprofiel.
+- Archiveren wordt geweigerd zolang er publicaties gepland of onderweg zijn; gearchiveerde creators zijn alleen-lezen.
+- Pauzeren: operator; hervatten: admin (zelfde regel als de kill switches).
+- Goedkeuren vereist een volledig concept, ≥ 1 canonieke referentie en een attestatie van minimaal 20 tekens.
+- Dupliceren kopieert instellingen en budgetlimieten, **niet** de visuele identiteit, accounts of content: een duplicaat is een sjabloon voor een nieuw, afwijkend personage.
+
+**Acceptatie** — aangetoond:
+- [x] Creator-levenscyclus volgt de statusmachine en wordt geaudit. *(integratie + e2e)*
+- [x] Nieuwe goedgekeurde karakterversie zet de vorige op `SUPERSEDED` in één transactie; goedgekeurde versies zijn onveranderlijk. *(integratie + e2e)*
+- [x] Uploads krijgen checksum en inhoudsvalidatie en zijn alleen geauthenticeerd bereikbaar. *(unit + integratie + e2e)*
+- [x] Een gepauzeerde of niet-actieve creator blokkeert zijn jobs. *(integratie)*
+- [x] Viewers zien alles alleen-lezen. *(e2e)*
 
 ## Fase 3 — Prompt Studio
 
@@ -62,7 +85,7 @@ Elke fase eindigt met werkende functionaliteit, groene tests (unit, integratie, 
 
 ## Fase 7 — Publishing
 
-**Inhoud** — OAuth-koppeling (met owner-goedkeuring), scope-/capability-verificatie, tokenvernieuwing, minstens één officiële integratie (voorkeur: YouTube Data API of Instagram Graph API, afhankelijk van welke app-review het eerst rond is), contentkalender (dag/week/maand, bulkplanning, conflictdetectie, tijdzones), campagnebeheer, exportpakket als ondersteund alternatief.
+**Inhoud** — OAuth-koppeling (met owner-goedkeuring), scope-/capability-verificatie, tokenvernieuwing, als eerste officiële integratie **Instagram** (Instagram Graph API — Content Publishing; besluit 28-10-2026), contentkalender (dag/week/maand, bulkplanning, conflictdetectie, tijdzones), campagnebeheer, exportpakket als ondersteund alternatief.
 
 **Acceptatie** — publicatie met timeout verifieert eerst de remote status; geen dubbele publicatie bij herstart (integratie + e2e met mockplatform); ontbrekende rechten ⇒ `NEEDS_MANUAL_ACTION` met alternatief.
 

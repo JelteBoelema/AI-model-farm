@@ -1,14 +1,17 @@
 import type { Metadata } from "next";
-import { Users } from "lucide-react";
+import Link from "next/link";
+import { Plus, Users } from "lucide-react";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { OriginBadge } from "@/components/dashboard/origin-badge";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { PhaseNotice } from "@/components/dashboard/phase-notice";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { parseFilters } from "@/lib/filters";
+import { can } from "@/lib/rbac";
+import { requireUser } from "@/server/auth/session";
 import { humanize } from "@/lib/utils";
 import { db } from "@/server/db";
 
@@ -17,6 +20,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 
 export default async function CreatorsPage({ searchParams }: Props) {
   const f = parseFilters(await searchParams);
+  const user = await requireUser();
   const creators = await db.creator.findMany({
     where: {
       ...(f.creator ? { id: f.creator } : {}),
@@ -29,16 +33,23 @@ export default async function CreatorsPage({ searchParams }: Props) {
 
   return (
     <>
-      <PageHeader title="Creators" description={`${creators.length} creator(s). Each creator has a fictional identity, a versioned visual profile and its own limits.`} />
-      <PhaseNotice
-        phase={2}
-        title="Creator management"
-        items={["Create, edit, duplicate, pause, resume, archive", "Briefing wizard that proposes a full profile", "Content pillars, formats and publishing schedule", "Per-creator budgets and autonomy mode"]}
+      <PageHeader
+        title="Creators"
+        description={`${creators.length} creator(s). Each creator has a fictional identity, a versioned visual profile and its own limits.`}
+        actions={
+          can(user.role, "creators:edit") ? (
+            <Button asChild size="sm">
+              <Link href="/creators/new">
+                <Plus /> New creator
+              </Link>
+            </Button>
+          ) : undefined
+        }
       />
       <Card>
         <CardContent className="px-0 pt-2">
           {creators.length === 0 ? (
-            <EmptyState icon={Users} title="No creators yet" description="Seed demo data with `pnpm db:seed:demo`, or create creators once phase 2 lands." />
+            <EmptyState icon={Users} title="No creators yet" description="Create your first creator from a creative brief." />
           ) : (
             <Table>
               <TableHeader>
@@ -58,7 +69,10 @@ export default async function CreatorsPage({ searchParams }: Props) {
                   <TableRow key={c.id}>
                     <TableCell>
                       <p className="flex items-center gap-2 font-medium">
-                        {c.name} {c.isDemo ? <OriginBadge kind="demo" /> : null}
+                        <Link href={`/creators/${c.id}`} className="hover:underline">
+                          {c.name}
+                        </Link>{" "}
+                        {c.isDemo ? <OriginBadge kind="demo" /> : null}
                       </p>
                       <p className="text-xs text-muted-foreground">@{c.slug}</p>
                     </TableCell>

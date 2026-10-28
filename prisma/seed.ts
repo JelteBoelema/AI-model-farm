@@ -127,7 +127,17 @@ async function seedDemo() {
         personality: "Warm, curious, practical",
         toneOfVoice: "Friendly and concise",
         backstory: "Fictional character created for demonstration purposes.",
-        contentPillars: ["How-to", "Behind the scenes", "Weekly picks"],
+        contentPillars: [
+          { name: "How-to", description: "Practical tips in the niche" },
+          { name: "Behind the scenes", description: "The character's fictional routine" },
+          { name: "Weekly picks", description: "Curated recommendations" },
+        ],
+        publishingSchedule: {
+          slots: [
+            { platform: "INSTAGRAM", weekday: 2, time: "18:00" },
+            { platform: "INSTAGRAM", weekday: 5, time: "12:00" },
+          ],
+        },
         contentFormats: ["IMAGE_POST", "SHORT_VIDEO", "CAROUSEL"],
         status: s.status,
         isDemo: true,
@@ -137,7 +147,7 @@ async function seedDemo() {
             status: "APPROVED",
             approvedAt: new Date(now - 10 * day),
             identityPrompt: `Synthetic adult character "${s.name}", consistent facial features, natural styling`,
-            appearance: { ageRange: "25-30", style: "natural" },
+            appearance: { ageRange: "25-30", build: "", skinTone: "", hair: "", eyes: "", face: "", distinguishingFeatures: "", wardrobe: "natural" },
             likenessAttestation: "Synthetic identity, not based on a real person (demo).",
           },
         },

@@ -11,6 +11,8 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  // Reference images are uploaded through server actions (15 MB file limit + form overhead).
+  experimental: { serverActions: { bodySizeLimit: "16mb" } },
   serverExternalPackages: ["bullmq", "ioredis", "pino", "@prisma/client"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];

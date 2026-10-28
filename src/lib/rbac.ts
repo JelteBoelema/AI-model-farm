@@ -19,6 +19,7 @@ export const PERMISSIONS = {
   "providers:manage": "ADMIN",
   "social:connect": "ADMIN",
   "budgets:lower": "ADMIN",
+  "autonomy:raise": "ADMIN", // lowering a creator's autonomy only needs creators:edit
   "budgets:raise": "OWNER", // raising hard limits needs the owner's explicit decision
   "policies:manage": "OWNER",
   "users:manage": "OWNER",

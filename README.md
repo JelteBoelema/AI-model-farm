@@ -2,13 +2,15 @@
 
 Cloud-gehost platform om 10–50 virtuele AI-creators te beheren: identiteit, prompts, beeld- en videogeneratie, planning, publicatie via officiële API's, analytics en harde kostenbeheersing — vanuit één dashboard, met maximale autonomie binnen expliciet ingestelde grenzen.
 
-**Status: fase 1 (Foundation) opgeleverd.** Zie [`docs/implementation-plan.md`](docs/implementation-plan.md) voor wat er werkt en wat per fase volgt.
+**Status: fase 1 (Foundation) en fase 2 (Creator Engine) opgeleverd.** Zie [`docs/implementation-plan.md`](docs/implementation-plan.md) voor wat er werkt en wat per fase volgt.
 
 ## Wat er nu werkt
 
 - Inloggen met rollen (owner/admin/operator/viewer), gebruikersbeheer, brute-force-bescherming.
 - Dashboard met 14 secties, globale filters en eerlijke herkomstlabels (*Measured*, *Estimated*, *Demo*, *Mock*).
 - Overview, Workflow Monitor (live queues en workers), AI Providers-register, Costs & Budgets, auditlog.
+- Creators aanmaken via een briefingwizard, bewerken, dupliceren, activeren, pauzeren, hervatten en archiveren; budget en autonomie per creator.
+- Character Studio: geversioneerde visuele identiteit, referentiebeelden met rechtenregistratie, goedkeuring met likeness-attestatie.
 - Kill switches: pauzeer alle generatie, alle publicatie, of één creator/campagne/provider.
 - Volledig datamodel met databasegaranties: append-only kostenjournaal en auditlog, geen dubbele publicaties.
 - Queue-infrastructuur met retries, jitter-backoff, timeouts, dead-letter, heartbeats en veilig herstel van vastgelopen jobs.
