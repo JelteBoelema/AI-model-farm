@@ -13,10 +13,10 @@ interface ProviderAdapter {
   validate(request): void;                                  // gooit invalid_input vóór er geld wordt uitgegeven
   estimate(request): CostEstimate;                          // bovengrens van het verbruik per prijseenheid
   generate(request, signal): Promise<GenerationResult>;     // outputs + verbruik per poging + servedBy
+  submit?(request, signal): Promise<{ providerJobId }>;      // langlopende jobs (video)
+  poll?(providerJobId, request, signal): Promise<{ done: false } | { done: true; result }>;
 }
 ```
-
-Video-adapters (fase 6) krijgen een asynchrone variant (indienen + status opvragen).
 
 Foutclassificatie (`ProviderError.kind`) bepaalt het gedrag van de worker:
 
@@ -58,6 +58,21 @@ Een provider wordt pas gekozen na een gedocumenteerde evaluatie op:
 - **Anthropic Claude** — officiële SDK. Standaard `claude-opus-5-5`, bulk `claude-haiku-5-5`. Thinking staat altijd aan (geen thinking-config meesturen); `effort` per provider instelbaar. Voor niet-Haiku-modellen staat de server-side fallback bij weigeringen aan (`fallbacks: "default"`): als het model weigert, kan een ander Claude-model het verzoek afmaken. Elke poging wordt apart afgerekend (`usage.iterations`) en de UI toont welk model antwoordde. Retries doet BullMQ, niet de SDK.
 - **OpenAI Images** — REST (`/v1/images/generations`, met referenties `/v1/images/edits`). Standaardmodel `gpt-image-2` (instelbaar). Volgens openbare bronnen is `gpt-image-1` op 23-10-2026 uitgefaseerd; de officiële documentatie (developers.openai.com) was vanuit de bouwomgeving niet bereikbaar, dus modelnaam, parameters en responsvorm zijn **nog niet live geverifieerd**. De verbindingstest en `pnpm test:live` doen dat zodra er een sleutel is.
 - **Black Forest Labs FLUX** — fallbackkandidaat voor beeld; adapter pas na de consistentiebenchmark (fase 10).
+
+## Status fase 6
+
+- **Google Veo (Gemini API)** — langlopend:
+  - Bevestigd uit Google's gepubliceerde REST-voorbeeld (via zoekresultaten; de docs-host was vanuit de bouwomgeving niet bereikbaar):
+    - indienen met `POST …/v1beta/models/{model}:predictLongRunning` en de header `x-goog-api-key`;
+    - peilen met `GET …/v1beta/{operation}` tot `done`;
+    - de clip staat op `response.generateVideoResponse.generatedSamples[0].video.uri` en wordt met de sleutel gedownload.
+  - **Nog niet geverifieerd**: de parameternamen `aspectRatio`, `durationSeconds` en `referenceImages` (`referenceType: "asset"`), en de toegestane duur 4/6/8 s.
+  - Standaardmodel `veo-3.1-generate-preview` (instelbaar).
+  - Downloads worden alleen geaccepteerd van Google-hosts.
+  - Gefilterde output wordt `content_policy`.
+- **ElevenLabs** — `POST /v1/text-to-speech/{voice_id}` met de header `xi-api-key`; model `eleven_multilingual_v2` (instelbaar). Alleen ontworpen, synthetische stemmen; een stem-ID is verplicht voordat de provider gereed is. Niet geverifieerd tegen de live docs om dezelfde reden.
+- **Lip-sync** — nog geen provider gekozen; talking-headformaten kunnen daarom niet geproduceerd worden.
+- **Runway** — fallbackkandidaat voor video, pas na de consistentiebenchmark (fase 10).
 
 ## Fallbackbeleid
 

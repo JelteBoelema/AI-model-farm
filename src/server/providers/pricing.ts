@@ -16,6 +16,8 @@ export const PRICE_UNITS = {
   long_input_mtok: "Input tokens, long-context tier (per million)",
   long_output_mtok: "Output tokens, long-context tier (per million)",
   per_image: "Per generated image (used for estimates)",
+  video_second: "Per second of generated video",
+  speech_kchar: "Speech synthesis (per 1,000 characters)",
 } as const;
 
 export type PriceUnit = keyof typeof PRICE_UNITS;
@@ -44,6 +46,7 @@ export function parsePricing(stored: unknown): Pricing | null {
 export type Usage = Partial<Record<PriceUnit, number>>;
 
 /** Maps raw usage quantities to the unit that prices them (token units are priced per million). */
+const PER_THOUSAND: PriceUnit[] = ["speech_kchar"];
 const PER_MILLION: PriceUnit[] = ["input_mtok", "output_mtok", "cache_write_mtok", "cache_read_mtok", "text_input_mtok", "image_input_mtok", "image_output_mtok", "long_input_mtok", "long_output_mtok"];
 
 export interface CostResult {
@@ -73,7 +76,7 @@ export function computeCost(pricing: Pricing | null, model: string, usage: Usage
     }
     const priceMicros = toMicros(price);
     const q = BigInt(Math.ceil(quantity));
-    total += PER_MILLION.includes(unit) ? (q * priceMicros + 999_999n) / 1_000_000n : q * priceMicros;
+    total += PER_MILLION.includes(unit) ? (q * priceMicros + 999_999n) / 1_000_000n : PER_THOUSAND.includes(unit) ? (q * priceMicros + 999n) / 1_000n : q * priceMicros;
   }
   return { eurMicros: missing.length ? null : toEur(total, pricing), missing };
 }

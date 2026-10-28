@@ -653,7 +653,8 @@ model GenerationJob {
   creatorId           String              @map("creator_id") @db.Uuid
   contentItemId       String?             @map("content_item_id") @db.Uuid
   sceneId             String?             @map("scene_id") @db.Uuid
-  providerId          String              @map("provider_id") @db.Uuid
+  // Null for steps that run locally (video assembly with FFmpeg).
+  providerId          String?             @map("provider_id") @db.Uuid
   promptVersionId     String?             @map("prompt_version_id") @db.Uuid
   kind                GenerationKind
   // Content pipeline step ("brief", "script", "caption", "image", "qc"); "" for other jobs.
@@ -680,7 +681,7 @@ model GenerationJob {
   creator       Creator             @relation(fields: [creatorId], references: [id], onDelete: Restrict)
   contentItem   ContentItem?        @relation(fields: [contentItemId], references: [id], onDelete: SetNull)
   scene         VideoScene?         @relation(fields: [sceneId], references: [id], onDelete: SetNull)
-  provider      AiProvider          @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  provider      AiProvider?         @relation(fields: [providerId], references: [id], onDelete: Restrict)
   promptVersion PromptVersion?      @relation(fields: [promptVersionId], references: [id], onDelete: Restrict)
   mediaAssets   MediaAsset[]
   costEntries   CostLedger[]

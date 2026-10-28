@@ -52,6 +52,7 @@ Wijzigingen die expliciete toestemming vereisen (nieuwe externe accountkoppeling
 - De Anthropic-client gebruikt een vaste basis-URL (`https://api.anthropic.com`): een `ANTHROPIC_BASE_URL` in de omgeving kan verkeer met de API-sleutel niet omleiden.
 - Een `auth`- of `quota`-fout van een provider pauzeert die provider automatisch en stuurt een kritieke melding; hervatten is een bewuste actie van een admin.
 - Prijslijsten en providerinstellingen wijzigen kan alleen een admin (`providers:manage`) en wordt geaudit.
+- FFmpeg draait zonder shell: argumenten als array, elk proces in een eigen tijdelijke map die altijd wordt opgeruimd, met een AbortSignal voor de tijdslimiet. Video-downloads van Veo worden alleen van Google-hosts geaccepteerd en met de sleutel in een header opgehaald, nooit in de URL.
 - Rotatie: `AUTH_SECRET` roteren logt iedereen uit; provider-keys roteren in Secrets Manager, cache verloopt binnen 5 minuten.
 
 ## Uploads (referentiebeelden)

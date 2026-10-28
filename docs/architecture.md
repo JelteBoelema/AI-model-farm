@@ -108,6 +108,8 @@ Fase 5 (`src/server/services/content-pipeline.ts`, `src/lib/content-pipeline.ts`
 | kwaliteitscontrole | `QC_REVIEW → READY` (of blijft ter review) | `QUALITY_RULES`, `qc.` | tekst met beeldinvoer + technische checks |
 | menselijke goedkeuring | `READY → APPROVED` | — | — |
 
+Video (korte video, 9:16) volgt dezelfde mechaniek met andere stappen: **storyboard** (`SCRIPT`, `script.short_video`) → `video_scenes`; **caption**; per scène een **voice-over** (`SPEECH`, telt niet als generatie) en een **clip** (`VIDEO`, template `video.`, met maximaal 3 referentiebeelden); als alle laatste takes klaar zijn volgt de **montage** (`MEDIA_PROCESSING`, FFmpeg op de media-worker, zonder provider) en daarna **kwaliteitscontrole** op de eindvideo (technische checks + frames per scène voor het rubriekmodel). Langlopende providers dienen in, slaan de provider-job-ID op en worden via vertraagde queue-jobs gepeild (elke 15 s, maximaal 30 min).
+
 Tekststappen vragen gestructureerde JSON (JSON-schema) en valideren het antwoord met Zod. De AI-disclosure wordt aan de caption toegevoegd als het model hem vergeet. Templates worden opgelost zoals in de Prompt Studio (campagne-pin → campagne → creator → globaal), beperkt tot de sleutelprefix van de stap. QC haalt `READY` alleen als alle technische checks slagen, het rubriekmodel slaagt met score ≥ 70, zonder rubriekfouten en (met referentiefoto's) met een consistent personage. Anders beslist een mens: nieuwe take per shot, takes goedkeuren/afwijzen, of goedkeuren ondanks QC met een verplichte reden.
 
 ```mermaid

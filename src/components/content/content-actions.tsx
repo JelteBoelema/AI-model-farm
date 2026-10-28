@@ -156,11 +156,11 @@ export function ItemActions(p: ItemActionsProps) {
   );
 }
 
-export function RegenerateShotButton({ itemId, shot, disabled }: { itemId: string; shot: number; disabled: boolean }) {
+export function RegenerateShotButton({ itemId, shot, disabled, label = "New take" }: { itemId: string; shot: number; disabled: boolean; label?: string }) {
   const { pending, run } = useRun();
   return (
-    <Button size="sm" variant="outline" disabled={disabled || pending} onClick={() => run(() => regenerateShotAction({ itemId, shot }), `New take for shot ${shot + 1} queued`)}>
-      <RefreshCw /> New take
+    <Button size="sm" variant="outline" disabled={disabled || pending} onClick={() => run(() => regenerateShotAction({ itemId, shot }), `${label} for ${label === "New clip" ? "scene" : "shot"} ${shot + 1} queued`)}>
+      <RefreshCw /> {label}
     </Button>
   );
 }

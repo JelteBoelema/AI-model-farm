@@ -67,3 +67,39 @@ test("viewer sees the factory read-only", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Content Factory" })).toBeVisible();
   await expect(page.getByRole("button", { name: /New content|New batch/ })).toHaveCount(0);
 });
+
+test("short video: storyboard → voice-over and clips → assembled 9:16 video → approval in mock mode", async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page, OWNER);
+  await page.goto("/content");
+  await page.getByRole("button", { name: "New content" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Creator").selectOption({ label: "Lena Studio" });
+  await dialog.getByLabel("Format").selectOption({ label: "Short video" });
+  await dialog.getByLabel("Scenes").fill("2");
+  await dialog.getByLabel("Title").fill("Capsule wardrobe in 12 seconds");
+  await dialog.getByRole("button", { name: "Create", exact: true }).click();
+
+  await page.waitForURL(/\/content\/[0-9a-f-]{36}$/);
+  await expect(page.getByLabel("Quality control").getByText("Passed")).toBeVisible({ timeout: 90_000 });
+  const pipeline = page.getByLabel("Pipeline");
+  for (const step of ["Brief", "Storyboard", "Caption", "Voice-over", "Scenes", "Assembly", "Quality control"]) await expect(pipeline.locator('li[data-state="done"]', { hasText: step })).toBeVisible();
+
+  const final = page.getByLabel("Final video", { exact: true });
+  await expect(final.getByText(/^1080×1920 · \d+\.\d s/)).toBeVisible();
+  await expect(final.getByLabel("Final video player")).toHaveAttribute("src", /\/api\/media\/.+\.mp4$/);
+  await expect(final.getByLabel("Technical checks").getByText(/✓ Resolution/)).toBeVisible();
+  await expect(final.getByLabel("Technical checks").getByText(/✓ Subtitles/)).toBeVisible();
+  const scenes = page.getByLabel("Scenes", { exact: true });
+  await expect(scenes.getByLabel(/^Voice-over scene/)).toHaveCount(2);
+
+  // The final video is served with byte ranges for seeking.
+  const src = await final.getByLabel("Final video player").getAttribute("src");
+  const ranged = await page.request.get(src!, { headers: { range: "bytes=0-99" } });
+  expect(ranged.status()).toBe(206);
+  expect((await ranged.body()).length).toBe(100);
+
+  await page.getByRole("button", { name: "Approve content" }).click();
+  await expect(page.getByText("Content approved")).toBeVisible();
+  await expect(final.getByText("Approved", { exact: true })).toBeVisible();
+});

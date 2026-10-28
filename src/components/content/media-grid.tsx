@@ -11,6 +11,7 @@ import { MediaReviewButtons } from "./content-actions";
 
 export interface MediaTile {
   id: string;
+  kind: "image" | "video";
   url: string;
   title: string;
   subtitle: string;
@@ -40,8 +41,12 @@ export function MediaGrid({ tiles, canReview }: { tiles: MediaTile[]; canReview:
       <div className="grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-3">
         {tiles.map((t) => (
           <figure key={t.id} className={cn("grid min-w-0 content-start gap-2 rounded-lg border bg-card p-2", picked.includes(t.id) && "ring-2 ring-primary")}>
-            {/* eslint-disable-next-line @next/next/no-img-element -- authenticated media route */}
-            <img src={t.url} alt={t.title} loading="lazy" className="aspect-square w-full rounded-md bg-muted object-contain" />
+            {t.kind === "video" ? (
+              <video controls muted preload="metadata" src={`${t.url}#t=0.5`} className="aspect-square w-full rounded-md bg-black object-contain" aria-label={t.title} />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element -- authenticated media route
+              <img src={t.url} alt={t.title} loading="lazy" className="aspect-square w-full rounded-md bg-muted object-contain" />
+            )}
             <figcaption className="grid gap-1.5 text-xs">
               <div className="flex flex-wrap items-center gap-1">
                 <StatusBadge status={t.status} />

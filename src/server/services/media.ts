@@ -2,7 +2,7 @@
 // loading the character's canonical references.
 
 import { randomUUID } from "node:crypto";
-import type { Prisma } from "@prisma/client";
+import type { MediaKind, Prisma } from "@prisma/client";
 import { sniffImage } from "@/lib/image-meta";
 import { sha256Hex } from "../crypto";
 import { db } from "../db";
@@ -58,6 +58,60 @@ export async function storeGeneratedImage(input: GeneratedImageInput, tx: Prisma
       modelVersion: input.modelVersion,
       promptSnapshot: input.prompt,
       paramsSnapshot: input.params as Prisma.InputJsonValue,
+      isMock: input.isMock,
+    },
+  });
+}
+
+const EXTENSIONS: Record<string, string> = { "video/mp4": "mp4", "audio/wav": "wav", "audio/mpeg": "mp3", "text/vtt": "vtt", "application/x-subrip": "srt" };
+
+export interface StoredMediaInput {
+  kind: Exclude<MediaKind, "IMAGE">;
+  source: "GENERATED" | "DERIVED";
+  bytes: Buffer;
+  mimeType: string;
+  creatorId: string | null;
+  contentItemId?: string | null;
+  generationJobId?: string | null;
+  shotIndex?: number | null;
+  width?: number | null;
+  height?: number | null;
+  durationMs?: number | null;
+  providerKey?: string | null;
+  modelVersion?: string | null;
+  prompt?: string | null;
+  params?: Record<string, unknown>;
+  qualityReport?: Prisma.InputJsonValue;
+  isMock: boolean;
+}
+
+/** Video, audio and subtitle files with the same provenance rules as images. */
+export async function storeMedia(input: StoredMediaInput, tx: Prisma.TransactionClient | typeof db = db) {
+  const extension = EXTENSIONS[input.mimeType];
+  if (!extension) throw new Error(`Unsupported media type ${input.mimeType}`);
+  const key = buildStorageKey({ creatorId: input.creatorId, kind: input.source === "DERIVED" ? "derived" : "generated", id: randomUUID(), extension });
+  await storage().put(key, input.bytes, input.mimeType);
+  return tx.mediaAsset.create({
+    data: {
+      creatorId: input.creatorId,
+      contentItemId: input.contentItemId ?? null,
+      generationJobId: input.generationJobId ?? null,
+      shotIndex: input.shotIndex ?? null,
+      kind: input.kind,
+      source: input.source,
+      status: "PENDING_REVIEW",
+      storageKey: key,
+      mimeType: input.mimeType,
+      sizeBytes: BigInt(input.bytes.length),
+      checksumSha256: sha256Hex(input.bytes),
+      width: input.width ?? null,
+      height: input.height ?? null,
+      durationMs: input.durationMs ?? null,
+      providerKey: input.providerKey ?? null,
+      modelVersion: input.modelVersion ?? null,
+      promptSnapshot: input.prompt ?? null,
+      paramsSnapshot: (input.params ?? {}) as Prisma.InputJsonValue,
+      qualityReport: input.qualityReport,
       isMock: input.isMock,
     },
   });

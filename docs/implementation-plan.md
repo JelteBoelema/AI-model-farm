@@ -127,11 +127,34 @@ Elke fase eindigt met werkende functionaliteit, groene tests (unit, integratie, 
 - [x] Kosten per bruikbaar asset zichtbaar en correct berekend. *(integratie + UI)*
 - [x] Viewers zien de factory alleen-lezen. *(e2e)*
 
-## Fase 6 — Video Engine
+## Fase 6 — Video Engine ✅ (opgeleverd)
 
-**Inhoud** — storyboardmodel (scènes, duur, acties, audio), scènegewijze generatie en hergebruik van goedgekeurde scènes, voice-over, ondertitels, FFmpeg-montage en conversie naar 9:16, technische QC (codec, resolutie, duur, loudness, ondertitels), één echte videoprovider zodra credentials beschikbaar zijn.
+**Inhoud**
+- Formaat **korte video** (9:16, 2–5 scènes van 4, 6 of 8 s): brief → storyboard → caption → per scène een voice-over en een clip → montage → kwaliteitscontrole → menselijke goedkeuring. Het storyboard wordt opgeslagen als `video_scenes` (beeld, actie, duur, voice-overtekst, schermtekst).
+- **Scènegewijs**: elke scène heeft eigen takes. *Nieuwe clip* maakt alleen voor die scène een nieuwe take; andere scènes, hun clips en voice-overs blijven onaangeroerd. Daarna volgen opnieuw montage en QC. Een voice-over wordt hergebruikt zolang de tekst gelijk blijft.
+- **Montage met FFmpeg** (media-worker): elke clip wordt geschaald en bijgesneden naar 1080×1920 bij 30 fps, aangevuld of ingekort tot de geplande duur, aan elkaar gezet, met de voice-over per scène op de tijdlijn. Loudness wordt genormaliseerd naar −14 LUFS (true peak −1,5 dBTP); output is H.264/AAC MP4 met faststart. Ondertitels worden gemaakt uit de voice-overtekst (WebVTT, maximaal 2 regels van 42 tekens, nooit over een scènegrens heen).
+- **Technische QC** op de eindvideo: container, codec/pixelformaat, resolutie 1080×1920, framerate, duur (± 0,5 s van het plan, maximaal 90 s), audiospoor, loudness en true peak, en de geldigheid van de ondertitels. Daarnaast beoordeelt Claude per scène een frame uit het midden, samen met de referentiefoto's van het karakter.
+- **Langlopende providers**: het contract heeft nu indienen + peilen. De provider-job-ID wordt opgeslagen vóór verdere verwerking. Het budget blijft gereserveerd tot het resultaat binnen is. Na 30 minuten zonder resultaat wordt de raming geboekt (de provider kan gefactureerd hebben) en de stap gestopt; *Resume* dient dan opnieuw in.
+- **Adapters**:
+  - Google Veo (Gemini API, langlopend): tekst-naar-video met maximaal 3 referentiebeelden.
+  - ElevenLabs: tekst-naar-spraak, alleen ontworpen stemmen. Er is een standaardstem per provider; een creator kan die overschrijven met `promptSettings.voiceId`.
+  - Mock-video: gewatermerkte FFmpeg-clips met "MOCK" en het scènenummer, plus piepende placeholder-stemmen.
+  - Nieuwe prijseenheden: per videoseconde en per 1.000 tekens spraak.
+- Media worden geleverd met byte-ranges, zodat je in video en audio kunt spoelen. De mediabibliotheek en de vergelijkingsweergave tonen ook video.
+- Starttemplates: `video.scene.default` (nieuw) en `script.short_video.default`, dat nu scènes en de brief gebruikt.
 
-**Acceptatie** — één scène opnieuw genereren raakt de andere scènes niet; QC weigert afwijkend formaat; mockvideo is gewatermerkt.
+**Nog niet**
+- Talking-head-video: vereist een lip-syncprovider, en die is nog niet geselecteerd. Je kunt zo'n item wel plannen, maar niet produceren.
+- Ondertitels inbranden: nu als los bestand; platformspecifiek inbranden volgt bij publicatie.
+- Runway als tweede videoprovider: pas na de consistentiebenchmark.
+
+**Acceptatie** — aangetoond:
+- [x] Eén scène opnieuw genereren raakt de andere scènes niet: geen nieuwe jobs, assets of statuswijzigingen voor die scènes; montage gebruikt hun ongewijzigde clip. *(integratie)*
+- [x] QC weigert een afwijkend formaat (liggend, verkeerde codec/duur/loudness, ontbrekende ondertitels of audio). *(unit + integratie met echte FFmpeg-output)*
+- [x] Mockvideo is gewatermerkt: de donkere "MOCK"-band is gemeten in een frame van de afgeleverde video. *(integratie)*
+- [x] Langlopende provider: budget blijft gereserveerd tijdens het wachten, kosten worden één keer geboekt, opgeven boekt de raming, hervatten dient opnieuw in. *(integratie)*
+- [x] Volledige videoketen tot goedkeuring via de echte workers; spoelbare levering (HTTP 206). *(e2e)*
+- [ ] Live test met echte Veo- en ElevenLabs-sleutels — wacht op sleutels (zie `docs/open-actions.md`).
 
 ## Fase 7 — Publishing
 

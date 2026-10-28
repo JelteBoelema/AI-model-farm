@@ -44,7 +44,9 @@ describe("provider registry", () => {
     expect(rows).toHaveLength(PROVIDER_CATALOG.length);
     expect(rows.find((r) => r.key === "mock-text")!.status).toBe("ACTIVE");
     expect(rows.find((r) => r.key === "mock-image")!.status).toBe("ACTIVE");
-    for (const key of ["runway", "google-veo", "elevenlabs", "bfl-flux", "mock-video"]) expect(rows.find((r) => r.key === key)!.status, key).not.toBe("ACTIVE");
+    expect(rows.find((r) => r.key === "mock-video")!.status).toBe("ACTIVE");
+    // Planned adapters stay inactive even with a key; implemented ones still need price list + connection test.
+    for (const key of ["runway", "google-veo", "elevenlabs", "bfl-flux"]) expect(rows.find((r) => r.key === key)!.status, key).not.toBe("ACTIVE");
     delete process.env.RUNWAY_API_KEY;
   });
 

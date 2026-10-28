@@ -138,7 +138,7 @@ export default async function WorkflowsPage() {
                   {attentionJobs.map((j) => (
                     <TableRow key={j.id}>
                       <TableCell className="text-xs">
-                        {humanize(j.kind)} · {j.creator.name} <span className="text-muted-foreground">via {j.provider.displayName}</span> {j.isMock ? <OriginBadge kind="mock" /> : null}
+                        {humanize(j.kind)} · {j.creator.name} <span className="text-muted-foreground">via {j.provider?.displayName ?? "FFmpeg (local)"}</span> {j.isMock ? <OriginBadge kind="mock" /> : null}
                       </TableCell>
                       <TableCell>
                         <StatusBadge status={j.status} />

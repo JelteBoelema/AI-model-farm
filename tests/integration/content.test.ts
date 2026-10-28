@@ -230,10 +230,10 @@ describe("content pipeline in mock mode", () => {
     expect(await db.generationJob.count({ where: { contentItemId: { in: items.map((i) => i.id) } } })).toBe(3);
   });
 
-  it("refuses video formats, creators without an approved character, and paused creators", async () => {
+  it("refuses talking heads, creators without an approved character, and paused creators", async () => {
     const creator = await readyCreator();
-    const video = await createContent(op, { creatorId: creator.id, format: "SHORT_VIDEO", title: "Video idea" });
-    await expect(startProduction(op, video.id)).rejects.toThrow(/phase 6/);
+    const video = await createContent(op, { creatorId: creator.id, format: "TALKING_HEAD", title: "Talking head idea" });
+    await expect(startProduction(op, video.id)).rejects.toThrow(/lip-sync/);
     const bare = await makeCreator();
     const item = await createContent(op, { creatorId: bare.id, format: "IMAGE_POST", title: "No character yet" });
     await expect(startProduction(op, item.id)).rejects.toThrow(/approved character/);
