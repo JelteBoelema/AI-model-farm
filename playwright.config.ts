@@ -46,7 +46,7 @@ export default defineConfig({
       url: "http://localhost:9480/healthz",
       reuseExistingServer: false,
       timeout: 120_000,
-      env: { ...E2E_ENV, WORKER_HEALTH_PORT: "9480", WORKER_QUEUES: "generation,media,scheduler" },
+      env: { ...E2E_ENV, WORKER_HEALTH_PORT: "9480", WORKER_QUEUES: "generation,media,publishing,scheduler" },
     },
   ],
 });

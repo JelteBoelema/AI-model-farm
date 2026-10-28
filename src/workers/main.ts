@@ -13,6 +13,7 @@ import { createWorker, removeHeartbeat, writeHeartbeat, type ProcessorMap } from
 import { MAINTENANCE_SCHEDULES, maintenanceProcessors } from "./processors/maintenance";
 import { promptTestProcessors } from "./processors/prompt-tests";
 import { contentProcessors } from "@/server/services/content-pipeline";
+import { publishingProcessors } from "@/server/services/publishing";
 
 // Processors are registered per phase. Queues without processors are left untouched so jobs wait
 // safely instead of failing; the Workflow Monitor shows them as "no consumer".
@@ -22,6 +23,7 @@ const PROCESSORS: Partial<Record<QueueName, ProcessorMap>> = {
   "generation-image": { ...promptTestProcessors, ...contentProcessors },
   "generation-video": contentProcessors,
   "media-processing": contentProcessors,
+  publishing: publishingProcessors,
 };
 
 async function main() {

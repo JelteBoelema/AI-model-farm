@@ -49,6 +49,7 @@ enum Platform {
 
 enum SocialAccountStatus {
   NOT_CONNECTED
+  PENDING_APPROVAL
   CONNECTED
   TOKEN_EXPIRED
   INSUFFICIENT_SCOPE
@@ -384,6 +385,12 @@ model SocialAccount {
   tokenExpiresAt    DateTime?           @map("token_expires_at") @db.Timestamptz(3)
   lastVerifiedAt    DateTime?           @map("last_verified_at") @db.Timestamptz(3)
   maxPostsPerDay    Int                 @default(3) @map("max_posts_per_day")
+  // Minimum time between two posts on this account (conflict detection in the calendar).
+  minGapMinutes     Int                 @default(60) @map("min_gap_minutes")
+  // Connected to the mock platform (mock mode): never receives anything real, and real accounts never receive mock media.
+  isMock            Boolean             @default(false) @map("is_mock")
+  connectedById     String?             @map("connected_by_id") @db.Uuid
+  connectedAt       DateTime?           @map("connected_at") @db.Timestamptz(3)
   isDemo            Boolean             @default(false) @map("is_demo")
   createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -391,6 +398,7 @@ model SocialAccount {
   creator            Creator             @relation(fields: [creatorId], references: [id], onDelete: Restrict)
   publishingJobs     PublishingJob[]
   analyticsSnapshots AnalyticsSnapshot[]
+  mockPosts          MockPlatformPost[]
 
   @@unique([platform, externalAccountId])
   @@unique([platform, handle])
@@ -768,6 +776,12 @@ model PublishingJob {
   externalUrl     String?          @map("external_url")
   attempt         Int              @default(0)
   lastError       Json?            @map("last_error")
+  // Snapshot of what is published: media in order and the caption at scheduling time.
+  mediaAssetIds   String[]         @map("media_asset_ids")
+  caption         String           @default("")
+  // Platform-side progress (e.g. media container ids) so a restart continues instead of re-uploading.
+  remoteState     Json             @default("{}") @map("remote_state")
+  createdById     String?          @map("created_by_id") @db.Uuid
   isMock          Boolean          @default(false) @map("is_mock")
   submittedAt     DateTime?        @map("submitted_at") @db.Timestamptz(3)
   confirmedAt     DateTime?        @map("confirmed_at") @db.Timestamptz(3)
@@ -782,6 +796,23 @@ model PublishingJob {
   @@index([status, scheduledFor])
   @@index([socialAccountId, scheduledFor])
   @@map("publishing_jobs")
+}
+
+// Posts "published" to the mock platform in mock mode; lets the whole publishing chain run and be
+// inspected without touching a real network.
+model MockPlatformPost {
+  id              String   @id @default(uuid()) @db.Uuid
+  socialAccountId String   @map("social_account_id") @db.Uuid
+  externalPostId  String   @unique @map("external_post_id")
+  containerIds    String[] @map("container_ids")
+  caption         String
+  mediaKinds      String[] @map("media_kinds")
+  publishedAt     DateTime @default(now()) @map("published_at") @db.Timestamptz(3)
+
+  socialAccount SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  @@index([socialAccountId, publishedAt])
+  @@map("mock_platform_posts")
 }
 
 // ─────────────────────────────── Costs & budgets ───────────────────────────────

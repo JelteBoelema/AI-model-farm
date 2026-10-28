@@ -4,7 +4,7 @@ Acties voor de eigenaar die bewust zijn uitgesteld tot de laatste fase, als het 
 
 ## 1. Pull requests reviewen en mergen
 
-Fase 3–6 bevatten databasemigraties (`prompt_studio`, `provider_execution`, `content_factory`, `video_engine`); die worden bij deployment automatisch toegepast door de `migrate`-taak.
+Fase 3–7 bevatten databasemigraties (`prompt_studio`, `provider_execution`, `content_factory`, `video_engine`, `publishing`); die worden bij deployment automatisch toegepast door de `migrate`-taak.
 
 De fasen worden gestapeld opgeleverd: elke fase-branch bouwt voort op de vorige. Merge ze **in volgorde** en klik na elke merge op *Delete branch*: GitHub zet de basis van de volgende PR dan automatisch op `main` (anders handmatig: *Edit → base: main*).
 
@@ -15,6 +15,7 @@ De fasen worden gestapeld opgeleverd: elke fase-branch bouwt voort op de vorige.
 | 4 — AI Providers | [#3](https://github.com/JelteBoelema/AI-model-farm/pull/3) | `phase-3-prompt-studio` | wacht op review (na #2) |
 | 5 — Content Factory | [#4](https://github.com/JelteBoelema/AI-model-farm/pull/4) | `phase-4-ai-providers` | wacht op review (na #3) |
 | 6 — Video Engine | [#5](https://github.com/JelteBoelema/AI-model-farm/pull/5) | `phase-5-content-factory` | wacht op review (na #4) |
+| 7 — Publishing | #6 | `phase-6-video-engine` | wacht op review (na #5) |
 
 Per PR: beschrijving lezen, de CI-checks moeten groen zijn, eventueel lokaal draaien (`README.md` → *Snel starten*), dan *Merge*.
 
@@ -25,10 +26,13 @@ App review bij Meta kan weken duren. De stappen (namen van permissies en scherme
 1. **Meta Business-account** (business.facebook.com) aanmaken of gebruiken, en de bedrijfsverificatie afronden.
 2. **Meta for Developers**-account en een nieuwe app van het type *Business*; product **Instagram** (API met Instagram Login) toevoegen.
 3. Per creator een **Instagram professioneel account** (Creator of Business) aanmaken. Vermeld in de bio dat het om een AI-gegenereerd personage gaat.
-4. In de app de redirect-URL van het platform registreren: `https://<jouw-domein>/api/social/instagram/callback` (exacte route volgt in fase 7).
-5. **App review** aanvragen voor de publicatie- en inzichtpermissies (o.a. basisprofiel, content publiceren, inzichten). Meta vraagt een schermopname van de flow; die maken we in fase 7 met de werkende koppeling.
+4. In de app de redirect-URL van het platform registreren: `https://<jouw-domein>/api/social/instagram/callback` (deze route bestaat sinds fase 7).
+5. **App review** aanvragen voor de publicatie- en inzichtpermissies (o.a. basisprofiel, content publiceren, inzichten). Meta vraagt een schermopname van de flow. Eerst in **ontwikkelmodus** één eigen test-account als tester toevoegen; daarmee activeer en verifieer ik de echte Instagram-adapter, en met die werkende koppeling maken we de opname.
 6. Privacybeleid- en gebruiksvoorwaarden-URL's publiceren (vereist voor review).
 7. App-ID en app-secret **niet** delen in chat of code: opslaan in AWS Secrets Manager (`creatorfarm/prod/meta-app`); het platform leest ze via die referentie.
+8. In de omgevingsinstellingen van Claude Code `developers.facebook.com` (en eventueel `graph.instagram.com`) toestaan, zodat ik endpoints, permissienamen en limieten kan verifiëren voordat de echte adapter aangaat.
+9. Productie op **S3-opslag** (staat al in het deploymentplan): Instagram haalt media zelf op via tijdelijk ondertekende URL's; met lokale opslag kan dat niet.
+10. IAM-rechten voor tokenopslag toepassen (`infra/aws/iam-social-secrets.json`) en per creator **publicatieslots** invullen (weekdag + tijd), zodat bulkplanning en de kalender werken.
 
 ## 3. AI-providers live zetten (na fase 4)
 

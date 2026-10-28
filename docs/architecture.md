@@ -133,6 +133,25 @@ sequenceDiagram
   B->>P: analytics-snapshots ophalen
 ```
 
+### Publiceren (fase 7)
+
+1. **Koppelen**: OAuth met eenmalige `state` (10 min in Redis, gebonden aan de ingelogde gebruiker) en PKCE. De tokens gaan naar de secret store (`local:` versleuteld in ontwikkeling, `aws-sm:creatorfarm/prod/social/<id>` in productie); de rij bewaart alleen de referentie. Een koppeling door een admin staat op `PENDING_APPROVAL` tot de owner beslist.
+2. **Inplannen**:
+   - Alleen goedgekeurde content, op een goedgekeurde koppeling.
+   - Conflicten blokkeren hard: het daglimiet en de minimale tussenruimte per account, gemeten in de tijdzone van de creator, en het farm-brede maximum aantal posts per dag.
+   - Mock-media gaan nooit naar een echt account.
+   - Een ontbrekend recht of formaat geeft `NEEDS_MANUAL_ACTION`, met het exportpakket als alternatief.
+   - Bulkplanning vult de vrije wekelijkse slots van de creator.
+3. **Dispatch** (maintenance, elke minuut): wat verschuldigd is gaat naar `QUEUED`, behalve als publiceren globaal, voor de creator of voor de campagne gepauzeerd is. Demo-publicaties worden nooit verstuurd.
+4. **Publiceren** (publishing-worker):
+   - `PUBLISHING` → containers aanmaken; de container-ID's worden direct opgeslagen.
+   - Status peilen.
+   - `publishAttemptedAt` vastleggen → `publish`.
+   - Bij een time-out of crash na die markering: `AWAITING_CONFIRMATION` → `findPublished`. Is de post gevonden, dan `PUBLISHED`; anders `FAILED` ("geverifieerd niet gepubliceerd") → opnieuw in de wachtrij. Er wordt dus nooit blind opnieuw gepost.
+   - Bij een verlopen token of ontbrekend recht: `NEEDS_MANUAL_ACTION`, en het account krijgt `TOKEN_EXPIRED` of `INSUFFICIENT_SCOPE` plus een melding.
+5. **Status van het item** volgt de jobs: `SCHEDULED` (ook als er handmatige actie nodig is), `PUBLISHING`, `PUBLISHED` of `FAILED`.
+6. **Tokenvernieuwing** (maintenance, elke 6 uur): tokens die binnen 7 dagen verlopen worden vernieuwd. Lukt dat niet, dan krijgt het account `TOKEN_EXPIRED` en volgt een kritieke melding.
+
 ## Queue-architectuur
 
 Gedefinieerd in `src/server/queue/definitions.ts`; zichtbaar in de Workflow Monitor.

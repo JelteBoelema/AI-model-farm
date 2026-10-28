@@ -107,6 +107,25 @@ Alleen officiële API's; geen browserautomatisering of scraping. **Instagram is 
 | TikTok | Content Posting API | App-audit vereist voor openbare *Direct Post*; zonder audit alleen beperkte zichtbaarheid; creator-info opvragen vóór posten. |
 | YouTube | YouTube Data API v3 | Upload kost een groot deel van het dagelijkse quotum; uploads van niet-geverifieerde apps kunnen privé blijven tot audit; Shorts = verticale video ≤ 3 min. |
 
+### Status fase 7
+
+- **Platformcontract** (`src/server/platforms/types.ts`), dezelfde stappen voor elk platform:
+  - OAuth: `authorizeUrl`, `exchangeCode`, `refresh`;
+  - controle: `inspect` (rechten en mogelijkheden per formaat);
+  - publiceren: `createContainers` → `containerStatus` → `publish`;
+  - controle achteraf: `findPublished`, aangeroepen voordat er na een time-out of crash ooit opnieuw gepubliceerd wordt.
+- **Mock-platform** (mock-modus):
+  - een eigen toestemmingsscherm in de app; publicaties komen in `mock_platform_posts` en zijn zichtbaar als *mock feed* per account;
+  - een handle die eindigt op `_limited` koppelt zonder publicatierecht, om dat pad te kunnen testen;
+  - test-hooks simuleren verwerking, een verloren antwoord en fouten.
+- **Instagram (echt)**: nog niet ingeschakeld. Vereist eerst:
+  - de Meta-app (App-ID en -secret in Secrets Manager);
+  - verificatie van endpoints, permissienamen en limieten tegen de actuele documentatie (developers.facebook.com was vanuit de bouwomgeving niet bereikbaar);
+  - S3-opslag: het platform haalt de media zelf op via tijdelijk ondertekende URL's.
+
+  Tot dan meldt het systeem dit expliciet; er is geen stille terugval.
+- **TikTok en YouTube**: later. Koppelen geeft nu een duidelijke melding.
+
 Vóór elke publicatie controleert de adapter de **gekoppelde scopes en capabilities** van het account voor het betreffende contenttype. Ontbreekt iets, dan wordt de job `NEEDS_MANUAL_ACTION` met een ondersteund alternatief: een exportpakket (media + caption + checklist) voor handmatige publicatie via de officiële app.
 
 **AI-labeling** — waar een platform een API-veld voor AI-/synthetische content biedt, wordt het gezet; daarnaast staat een disclosure in de caption (`content_items.ai_disclosure`, standaard aan). Dit sluit ook aan op de transparantieverplichtingen voor synthetische content onder de EU AI-verordening.

@@ -7,6 +7,8 @@ import { recordAudit, SYSTEM_ACTOR } from "@/server/audit";
 import { QUEUES, type QueueName } from "@/server/queue/definitions";
 import { markStepFailed } from "@/server/services/content-pipeline";
 import type { PipelineStep } from "@/lib/content-pipeline";
+import { dispatchDuePublications } from "@/server/services/publishing";
+import { refreshExpiringTokens } from "@/server/services/social";
 
 export const GENERATION_KIND_QUEUE: Record<GenerationKind, QueueName> = {
   TEXT: "generation-text",
@@ -96,9 +98,13 @@ export async function detectStuckJobs(now = new Date()): Promise<StuckReport> {
 export const maintenanceProcessors = {
   "reservations.expire": async () => ({ released: await expireReservations() }),
   "jobs.detect-stuck": async () => detectStuckJobs(),
+  "publishing.dispatch": async () => dispatchDuePublications(),
+  "social.refresh-tokens": async () => refreshExpiringTokens(),
 };
 
 export const MAINTENANCE_SCHEDULES = [
   { id: "reservations-expire", jobName: "reservations.expire", everyMs: 5 * 60_000 },
   { id: "jobs-detect-stuck", jobName: "jobs.detect-stuck", everyMs: 2 * 60_000 },
+  { id: "publishing-dispatch", jobName: "publishing.dispatch", everyMs: 60_000 },
+  { id: "social-refresh-tokens", jobName: "social.refresh-tokens", everyMs: 6 * 60 * 60_000 },
 ] as const;

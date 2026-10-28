@@ -19,6 +19,7 @@ export const PERMISSIONS = {
   "controls:resume": "ADMIN",
   "providers:manage": "ADMIN",
   "social:connect": "ADMIN",
+  "social:approve": "OWNER", // a new external account link needs the owner's explicit decision
   "budgets:lower": "ADMIN",
   "autonomy:raise": "ADMIN", // lowering a creator's autonomy only needs creators:edit
   "budgets:raise": "OWNER", // raising hard limits needs the owner's explicit decision

@@ -156,11 +156,48 @@ Elke fase eindigt met werkende functionaliteit, groene tests (unit, integratie, 
 - [x] Volledige videoketen tot goedkeuring via de echte workers; spoelbare levering (HTTP 206). *(e2e)*
 - [ ] Live test met echte Veo- en ElevenLabs-sleutels — wacht op sleutels (zie `docs/open-actions.md`).
 
-## Fase 7 — Publishing
+## Fase 7 — Publishing ✅ (opgeleverd met mock-platform)
 
-**Inhoud** — OAuth-koppeling (met owner-goedkeuring), scope-/capability-verificatie, tokenvernieuwing, als eerste officiële integratie **Instagram** (Instagram Graph API — Content Publishing; besluit 28-10-2026), contentkalender (dag/week/maand, bulkplanning, conflictdetectie, tijdzones), campagnebeheer, exportpakket als ondersteund alternatief.
+**Inhoud**
+- **Koppelen via OAuth**:
+  - eenmalige `state` gebonden aan de gebruiker, en PKCE;
+  - tokens alleen in de secret store; schrijfbaar lokaal (versleuteld bestand) of in AWS Secrets Manager;
+  - een koppeling door een admin wacht op **goedkeuring door de owner**; de owner koppelt direct;
+  - verifiëren van rechten en mogelijkheden per formaat, limieten per account, ontkoppelen;
+  - tokenvernieuwing elke 6 uur, met een melding als het token verlopen is.
+- **Platformcontract en mock-platform**: Instagram-achtige container-flow, eigen toestemmingsscherm en een mock feed per account. Instagram is de eerste echte integratie, maar wordt pas aangezet na de Meta-app en verificatie (zie *Nog niet*).
+- **Inplannen**:
+  - alleen goedgekeurde content op goedgekeurde koppelingen;
+  - een momentopname van media en caption (inclusief hashtags en AI-disclosure);
+  - harde conflicten: daglimiet en minimale tussenruimte per account in de tijdzone van de creator, plus het farm-brede maximum;
+  - mock-media nooit naar een echt account;
+  - een ontbrekend recht geeft `NEEDS_MANUAL_ACTION` met het exportpakket.
+  - Daarnaast: verplaatsen, annuleren, opnieuw proberen, nu publiceren, en handmatig gepubliceerd melden met de link.
+- **Bulkplanning**: geselecteerde goedgekeurde items in de volgende vrije wekelijkse slots van de creator, met correcte zomer/wintertijd.
+- **Dispatch en worker**:
+  - pauzes (globaal, per creator, per campagne) houden posts vast;
+  - container-ID's worden opgeslagen vóór de volgende stap;
+  - na een time-out of crash wordt eerst bij het platform gecontroleerd, daarna pas opnieuw geprobeerd;
+  - herhaalpogingen met backoff bij tijdelijke fouten.
+- **Exportpakket** (ZIP): media in volgorde, ondertitels, `caption.txt`, `checklist.md` (inclusief AI-label) en `metadata.json` met herkomst. Gemarkeerd als MOCK waar dat zo is.
+- **Contentkalender**: maand-, week- en dagweergave, tijdzonekeuze, conflictmarkering en acties per post.
+- **Campagnebeheer**:
+  - aanmaken en bewerken (brief, data, creators);
+  - activeren, pauzeren via de kill switch (stopt generatie én publicatie), hervatten (admin), afronden, archiveren;
+  - budget per maand/dag (verlagen door een admin, verhogen of verwijderen door de owner);
+  - uitgaven, content, publicaties en kosten per bruikbaar asset.
 
-**Acceptatie** — publicatie met timeout verifieert eerst de remote status; geen dubbele publicatie bij herstart (integratie + e2e met mockplatform); ontbrekende rechten ⇒ `NEEDS_MANUAL_ACTION` met alternatief.
+**Nog niet**
+- De echte Instagram-adapter. Daarvoor zijn nodig: de Meta-app (ontwikkelmodus volstaat om te starten), toegang tot developers.facebook.com voor verificatie, en S3-opslag in productie.
+- TikTok en YouTube.
+
+**Acceptatie** — aangetoond:
+- [x] Een publicatie met time-out verifieert eerst de status bij het platform: de post wordt gevonden en `PUBLISHED`, er komt geen tweede post. *(integratie)*
+- [x] Geen dubbele publicatie na een herstart: een crash vlak na de publicatieaanroep wordt geverifieerd, en een crash ervóór leidt tot een gecontroleerde nieuwe poging. Beide eindigen met precies één post. *(integratie)*
+- [x] Ontbrekende rechten leiden tot `NEEDS_MANUAL_ACTION` met het exportpakket (een ZIP die python's zipfile accepteert); handmatig gepubliceerd melden zet het item op gepubliceerd. *(integratie)*
+- [x] Volledige keten in de browser: mock-account koppelen → content maken en goedkeuren → nu publiceren → mock feed → kalender → exportpakket. *(e2e)*
+- [x] Koppelingen: goedkeuring door de owner, geweigerde of hergebruikte state, rechten per rol, tokenvernieuwing. Conflicten, tijdzones (inclusief zomer/wintertijd), pauze, verlopen token, tijdelijke fouten en campagnebeheer. *(unit + integratie + e2e)*
+- [ ] Live publiceren op Instagram — wacht op de Meta-app (zie `docs/open-actions.md`).
 
 ## Fase 8 — Autonomy
 
