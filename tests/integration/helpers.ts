@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { db } from "@/server/db";
 import { hashPassword } from "@/server/auth/password";
-import type { UserRole } from "@prisma/client";
+import type { CreatorStatus, UserRole } from "@prisma/client";
 
 export const uid = () => randomUUID().slice(0, 8);
 
@@ -9,7 +9,7 @@ export async function makeUser(role: UserRole = "OPERATOR", password = "correct-
   return db.user.create({ data: { email: `${role.toLowerCase()}-${uid()}@test.local`, name: `Test ${role}`, role, passwordHash: await hashPassword(password) } });
 }
 
-export async function makeCreator(overrides: Partial<{ name: string }> = {}) {
+export async function makeCreator(overrides: Partial<{ name: string; status: CreatorStatus }> = {}) {
   const id = uid();
   return db.creator.create({
     data: {
@@ -23,8 +23,13 @@ export async function makeCreator(overrides: Partial<{ name: string }> = {}) {
       toneOfVoice: "test",
       backstory: "fictional",
       contentFormats: ["IMAGE_POST"],
+      status: overrides.status ?? "ACTIVE",
     },
   });
+}
+
+export function acting(user: { id: string; role: UserRole; email: string }) {
+  return { id: user.id, role: user.role, actor: { type: "USER" as const, id: user.id, label: user.email } };
 }
 
 export async function makeProvider() {

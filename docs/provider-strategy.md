@@ -78,7 +78,7 @@ Een provider wordt pas gekozen na een gedocumenteerde evaluatie op:
 
 ## Socialmediaplatforms (fase 7)
 
-Alleen officiële API's; geen browserautomatisering of scraping.
+Alleen officiële API's; geen browserautomatisering of scraping. **Instagram is de eerste integratie** (besluit 28-10-2026). Daarvoor is nodig: een Meta-developer-app, Instagram professionele accounts (business/creator) per creator, en goedgekeurde app review voor de publicatiepermissies. Die aanvraag kost doorlooptijd en kan al vóór fase 7 gestart worden.
 
 | Platform | API | Belangrijke beperkingen (te verifiëren in fase 7) |
 |---|---|---|

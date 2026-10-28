@@ -50,6 +50,14 @@ Wijzigingen die expliciete toestemming vereisen (nieuwe externe accountkoppeling
 - `APP_ENCRYPTION_KEY` (AES-256-GCM, `src/server/crypto.ts`) is beschikbaar voor waarden die wij zelf moeten versleutelen; associated data koppelt een ciphertext aan zijn context.
 - Rotatie: `AUTH_SECRET` roteren logt iedereen uit; provider-keys roteren in Secrets Manager, cache verloopt binnen 5 minuten.
 
+## Uploads (referentiebeelden)
+
+- Bestandstype bepaald op inhoud (magic bytes), niet op extensie of door de browser opgegeven MIME-type; alleen PNG, JPEG en WebP (geen SVG: geen script-risico).
+- Maximaal 15 MB, 512–8192 px; server-action-limiet 16 MB.
+- Opslagsleutels worden door de server gegenereerd (`creators/<id>/references/<jaar>/<maand>/<uuid>.<ext>`), objecten worden nooit overschreven.
+- Elke upload vereist een bron-/rechtenregistratie (`rights_note`); echte personen alleen met schriftelijke toestemming.
+- Media worden alleen geauthenticeerd geleverd (lokaal via `/api/media`, in productie via kortlevende signed URLs).
+
 ## Logging en foutmeldingen
 
 - Gestructureerde JSON-logs (pino) met redactie van `password`, `token`, `apiKey`, `authorization`, `cookie`, `secret` op meerdere niveaus.

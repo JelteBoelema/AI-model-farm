@@ -1,13 +1,12 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { UserRound } from "lucide-react";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { OriginBadge } from "@/components/dashboard/origin-badge";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { PhaseNotice } from "@/components/dashboard/phase-notice";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { parseFilters } from "@/lib/filters";
-import { formatDateTime } from "@/lib/utils";
 import { db } from "@/server/db";
 
 export const metadata: Metadata = { title: "Character Studio" };
@@ -15,45 +14,53 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 
 export default async function CharactersPage({ searchParams }: Props) {
   const f = parseFilters(await searchParams);
-  const profiles = await db.characterProfile.findMany({
-    where: f.creator ? { creatorId: f.creator } : {},
-    orderBy: [{ creatorId: "asc" }, { version: "desc" }],
-    include: { creator: { select: { name: true, isDemo: true } }, _count: { select: { references: true } } },
+  const creators = await db.creator.findMany({
+    where: { ...(f.creator ? { id: f.creator } : {}), status: { not: "ARCHIVED" } },
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      isDemo: true,
+      characterProfiles: { orderBy: { version: "desc" }, select: { version: true, status: true, identityPrompt: true, _count: { select: { references: true } } } },
+    },
   });
 
   return (
     <>
       <PageHeader title="Character Studio" description="Versioned visual identities. Generations pin a profile version so approved content never changes silently." />
-      <PhaseNotice
-        phase={2}
-        title="Character Engine"
-        items={["Structured appearance editor and identity prompt", "Canonical reference image upload and approval", "Reference-conditioned consistency tests", "Likeness attestation (synthetic, no real person)"]}
-      />
-      {profiles.length === 0 ? (
+      {creators.length === 0 ? (
         <Card>
-          <EmptyState icon={UserRound} title="No character profiles" />
+          <EmptyState icon={UserRound} title="No creators" description="Create a creator first." />
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {profiles.map((p) => (
-            <Card key={p.id}>
-              <CardHeader className="flex-row items-start justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    {p.creator.name} · v{p.version} {p.creator.isDemo ? <OriginBadge kind="demo" /> : null}
-                  </CardTitle>
-                  <CardDescription>{p.approvedAt ? `Approved ${formatDateTime(p.approvedAt)}` : `Created ${formatDateTime(p.createdAt)}`}</CardDescription>
-                </div>
-                <StatusBadge status={p.status} />
-              </CardHeader>
-              <CardContent className="flex flex-col gap-2 text-sm">
-                <p className="line-clamp-3 text-muted-foreground">{p.identityPrompt}</p>
-                <p className="text-xs text-muted-foreground">
-                  {p._count.references} reference image(s) · {p.likenessAttestation ? "likeness attested" : "no likeness attestation"}
-                </p>
-              </CardContent>
-            </Card>
-          ))}
+          {creators.map((c) => {
+            const approved = c.characterProfiles.find((p) => p.status === "APPROVED");
+            const draft = c.characterProfiles.find((p) => p.status === "DRAFT");
+            const shown = approved ?? draft;
+            return (
+              <Link key={c.id} href={`/characters/${c.id}`} className="rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <Card className="h-full transition-colors hover:bg-accent/40">
+                  <CardHeader className="flex-row items-start justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        {c.name} {c.isDemo ? <OriginBadge kind="demo" /> : null}
+                      </CardTitle>
+                      <CardDescription>
+                        {approved ? `Version ${approved.version} approved` : "No approved version"}
+                        {draft ? ` · draft v${draft.version}` : ""}
+                      </CardDescription>
+                    </div>
+                    {shown ? <StatusBadge status={shown.status} /> : null}
+                  </CardHeader>
+                  <CardContent className="text-sm">
+                    <p className="line-clamp-3 text-muted-foreground">{shown?.identityPrompt || "No identity defined yet."}</p>
+                    <p className="mt-2 text-xs text-muted-foreground">{shown?._count.references ?? 0} reference image(s)</p>
+                  </CardContent>
+                </Card>
+              </Link>
+            );
+          })}
         </div>
       )}
     </>

@@ -71,6 +71,17 @@ erDiagram
 
 `cost_ledger` gebruikt `ON DELETE RESTRICT` naar alle gerelateerde entiteiten: zolang er kosten aan hangen, kan een creator, campagne of job niet worden verwijderd (archiveren kan wel).
 
+## JSON-velden (gevalideerd met Zod, `src/lib/schemas/creator.ts`)
+
+| Veld | Vorm |
+|---|---|
+| `creators.content_pillars` | `[{ name, description }]`, 1–8 |
+| `creators.publishing_schedule` | `{ slots: [{ platform, weekday (1 = ma), time "HH:MM" }] }`, uniek per slot, in `creators.timezone` |
+| `character_profiles.appearance` | `{ ageRange, build, skinTone, hair, eyes, face, distinguishingFeatures, wardrobe }` |
+| `character_profiles.consistency_strategy` | `{ referenceWeight 0–1, seed | null, notes }` |
+
+`jsonb` bewaart sleutels niet in invoervolgorde; wijzigingsdetectie gebruikt daarom een sleutelvolgorde-onafhankelijke vergelijking.
+
 ## Statusmachines
 
 Gedefinieerd in `src/lib/state-machines.ts` en volledig getest. Kernregels:

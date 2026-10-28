@@ -1,6 +1,6 @@
 # Deployment
 
-## Doelarchitectuur (AWS `eu-central-1`)
+## Doelarchitectuur (AWS `eu-central-1`, Frankfurt — bevestigd)
 
 | Component | Dienst | Startgrootte (10–50 creators) |
 |---|---|---|
