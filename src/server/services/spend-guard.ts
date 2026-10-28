@@ -1,8 +1,9 @@
 // Pre-flight budget check for paid provider calls. Every applicable hard limit must leave room for
 // the conservative estimate: farm-wide month/day, creator, campaign and provider budgets, plus the
-// autonomy policy's maximum cost per job. (Phase 5 adds reservations on top of this check.)
+// autonomy policy's maximum cost per job. Budget held by open reservations counts as used; the
+// cost manager runs this check under a lock together with creating the reservation.
 
-import type { BudgetPeriod, BudgetScope, Prisma } from "@prisma/client";
+import type { BudgetPeriod, BudgetScope, Prisma, PrismaClient } from "@prisma/client";
 import { formatMoney } from "@/lib/money";
 import { db } from "../db";
 import { DomainError } from "../errors";
@@ -33,14 +34,16 @@ const SCOPE_FILTER: Record<BudgetScope, (id: string | null) => Prisma.CostLedger
   PROVIDER: (id) => ({ providerId: id }),
 };
 
-export async function assertSpendAllowed(ctx: SpendContext): Promise<void> {
+type Client = Prisma.TransactionClient | PrismaClient;
+
+export async function assertSpendAllowed(ctx: SpendContext, client: Client = db): Promise<void> {
   const now = ctx.now ?? new Date();
   if (ctx.estimateMicros === null) throw new BudgetBlockedError("The cost of this call cannot be estimated (missing price). Add the price under AI Providers.");
 
-  const globalMonth = await db.budgetPolicy.findFirst({ where: { scope: "GLOBAL", period: "MONTH" } });
+  const globalMonth = await client.budgetPolicy.findFirst({ where: { scope: "GLOBAL", period: "MONTH" } });
   if (!globalMonth) throw new BudgetBlockedError("No farm-wide monthly budget is set; paid generation stays blocked until an owner sets one.");
 
-  const autonomy = await db.autonomyPolicy.findFirst({ where: { scope: "GLOBAL" } });
+  const autonomy = await client.autonomyPolicy.findFirst({ where: { scope: "GLOBAL" } });
   if (autonomy?.maxCostPerJobMicros != null && ctx.estimateMicros > autonomy.maxCostPerJobMicros)
     throw new BudgetBlockedError(`Estimated cost ${formatMoney(ctx.estimateMicros, "EUR", 4)} exceeds the maximum per job (${formatMoney(autonomy.maxCostPerJobMicros)}).`);
 
@@ -50,14 +53,14 @@ export async function assertSpendAllowed(ctx: SpendContext): Promise<void> {
     ...(ctx.creatorId ? [{ scope: "CREATOR" as const, id: ctx.creatorId }] : []),
     ...(ctx.campaignId ? [{ scope: "CAMPAIGN" as const, id: ctx.campaignId }] : []),
   ];
-  const policies = await db.budgetPolicy.findMany({ where: { OR: targets.map((t) => ({ scope: t.scope, targetId: t.id })) } });
+  const policies = await client.budgetPolicy.findMany({ where: { OR: targets.map((t) => ({ scope: t.scope, targetId: t.id })) } });
 
   for (const p of policies) {
     const since = periodStart(p.period, now);
     const scoped = SCOPE_FILTER[p.scope](p.targetId);
     const [spent, held] = await Promise.all([
-      db.costLedger.aggregate({ where: { ...scoped, isMock: false, occurredAt: { gte: since } }, _sum: { amountMicros: true } }),
-      db.budgetReservation.aggregate({
+      client.costLedger.aggregate({ where: { ...scoped, isMock: false, occurredAt: { gte: since } }, _sum: { amountMicros: true } }),
+      client.budgetReservation.aggregate({
         where: { status: "HELD", ...(p.scope === "GLOBAL" ? {} : p.scope === "CREATOR" ? { creatorId: p.targetId } : p.scope === "CAMPAIGN" ? { campaignId: p.targetId } : { providerId: p.targetId }) },
         _sum: { amountMicros: true },
       }),

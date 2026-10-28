@@ -1,15 +1,15 @@
-// Single execution path for provider calls: pause check → validation → estimate → budget guard →
-// rate limit → call → cost booking. Real costs go to the append-only ledger exactly once per
-// ledger key; mock calls cost a known zero and are never booked as spend.
+// Single execution path for provider calls: pause check → validation → estimate → budget
+// reservation → rate limit → call → settlement. Real costs go to the append-only ledger exactly once
+// per ledger key and consume the reservation; a call that was not billed releases it. Mock calls
+// cost a known zero and are never booked as spend.
 
 import type { AiProvider, CostBasis, CostCategory } from "@prisma/client";
 import { Prisma } from "@prisma/client";
-import { db } from "../db";
 import { assertNotPaused } from "../controls";
 import { computeCost, parsePricing } from "../providers/pricing";
 import { acquireRateLimit, autoPauseProvider, createAdapter, type ProviderConfig } from "../providers/registry";
 import { ProviderError, type AttemptUsage, type GenerationRequest, type GenerationResult, type ProviderAdapter } from "../providers/types";
-import { assertSpendAllowed } from "./spend-guard";
+import { releaseReservation, reserveBudget, settleCharge } from "./cost-manager";
 
 export interface Attribution {
   creatorId?: string | null;
@@ -28,6 +28,8 @@ export interface ExecuteInput {
   purpose: string;
   signal: AbortSignal;
   adapter?: ProviderAdapter;
+  /** Production work stops when its creator is paused; prompt tests and the wizard do not need an active creator. */
+  checkCreatorPause?: boolean;
 }
 
 export interface ExecuteResult {
@@ -61,18 +63,16 @@ function priceAttempts(provider: AiProvider, attempts: AttemptUsage[]) {
   return { total, missing };
 }
 
-async function book(input: ExecuteInput, amountMicros: bigint, basis: CostBasis, note: string | undefined, extra: Record<string, unknown>) {
+async function book(input: ExecuteInput, reservationId: string | null, amountMicros: bigint, basis: CostBasis, note: string | undefined, extra: Record<string, unknown>) {
   if (input.provider.isMock) return;
   const units = input.request.capability === "IMAGE" ? 1 : null;
-  // skipDuplicates: the same ledger key twice (a retried bookkeeping step) keeps the first booking.
-  await db.costLedger.createMany({
-    skipDuplicates: true,
-    data: [
-      {
+  await settleCharge(
+    {
+      amountMicros,
+      basis,
+      data: {
         entryType: "CHARGE",
         category: CATEGORY[input.request.capability] ?? "OTHER",
-        basis,
-        amountMicros,
         units: units === null ? null : new Prisma.Decimal(units),
         unitType: units === null ? null : "image",
         uncertaintyNote: basis === "ESTIMATED" ? (note ?? "Estimated") : null,
@@ -84,21 +84,42 @@ async function book(input: ExecuteInput, amountMicros: bigint, basis: CostBasis,
         idempotencyKey: input.ledgerKey,
         metadata: { purpose: input.purpose, model: input.request.model, ...extra } as Prisma.InputJsonValue,
       },
-    ],
-  });
+    },
+    reservationId,
+  );
 }
 
 export async function executeGeneration(input: ExecuteInput): Promise<ExecuteResult> {
   const { provider, config, request } = input;
-  await assertNotPaused({ chain: "generation", providerId: provider.id, campaignId: input.attribution.campaignId ?? null });
+  await assertNotPaused({ chain: "generation", providerId: provider.id, campaignId: input.attribution.campaignId ?? null, creatorId: input.checkCreatorPause ? input.attribution.creatorId : null });
 
   const adapter = input.adapter ?? (await createAdapter(provider));
   adapter.validate(request);
   const estimate = adapter.estimate(request);
   const estimateMicros = computeCost(parsePricing(provider.pricing), request.model, estimate.maxUsage).eurMicros;
+  let reservationId: string | null = null;
   if (!provider.isMock) {
-    await assertSpendAllowed({ estimateMicros, providerId: provider.id, creatorId: input.attribution.creatorId, campaignId: input.attribution.campaignId });
+    const held = await reserveBudget({
+      estimateMicros,
+      providerId: provider.id,
+      creatorId: input.attribution.creatorId,
+      campaignId: input.attribution.campaignId,
+      contentItemId: input.attribution.contentItemId,
+      generationJobId: input.attribution.generationJobId,
+      ttlMs: config.timeoutMs * 2 + 5 * 60_000,
+    });
+    reservationId = held.id;
   }
+  try {
+    return await call(input, adapter, estimate.uncertaintyNote, estimateMicros, reservationId);
+  } finally {
+    // Every path that billed has consumed the hold already; anything still held was not billed.
+    if (reservationId) await releaseReservation(reservationId);
+  }
+}
+
+async function call(input: ExecuteInput, adapter: ProviderAdapter, uncertaintyNote: string, estimateMicros: bigint | null, reservationId: string | null): Promise<ExecuteResult> {
+  const { provider, config, request } = input;
   await acquireRateLimit(provider.id, config.maxRequestsPerMinute);
 
   let result: GenerationResult;
@@ -110,8 +131,8 @@ export async function executeGeneration(input: ExecuteInput): Promise<ExecuteRes
     if (provider.isMock) throw err;
     if (err.kind === "timeout" && estimateMicros !== null) {
       // The outcome is unknown and the provider may have billed: book the conservative estimate.
-      const note = `Timed out; outcome unknown. ${estimate.uncertaintyNote}`;
-      await book(input, estimateMicros, "ESTIMATED", note, { error: err.kind });
+      const note = `Timed out; outcome unknown. ${uncertaintyNote}`;
+      await book(input, reservationId, estimateMicros, "ESTIMATED", note, { error: err.kind });
       throw new ChargedProviderError(err, estimateMicros, "ESTIMATED");
     }
     const attempts = (raw as { attempts?: AttemptUsage[] }).attempts;
@@ -121,7 +142,7 @@ export async function executeGeneration(input: ExecuteInput): Promise<ExecuteRes
       const amount = priced.missing.length ? estimateMicros : priced.total;
       if (amount !== null) {
         const basis: CostBasis = priced.missing.length ? "ESTIMATED" : "MEASURED";
-        await book(input, amount, basis, priced.missing.length ? `Price missing for ${priced.missing.join("; ")}` : undefined, { error: err.kind, attempts });
+        await book(input, reservationId, amount, basis, priced.missing.length ? `Price missing for ${priced.missing.join("; ")}` : undefined, { error: err.kind, attempts });
         throw new ChargedProviderError(err, amount, basis);
       }
     }
@@ -132,10 +153,10 @@ export async function executeGeneration(input: ExecuteInput): Promise<ExecuteRes
 
   const priced = priceAttempts(provider, result.attempts);
   if (priced.missing.length) {
-    const note = `Price missing for ${priced.missing.join("; ")}; booked the conservative estimate. ${estimate.uncertaintyNote}`;
-    await book(input, estimateMicros!, "ESTIMATED", note, { attempts: result.attempts, servedBy: result.servedBy });
+    const note = `Price missing for ${priced.missing.join("; ")}; booked the conservative estimate. ${uncertaintyNote}`;
+    await book(input, reservationId, estimateMicros!, "ESTIMATED", note, { attempts: result.attempts, servedBy: result.servedBy });
     return { result, costMicros: estimateMicros!, basis: "ESTIMATED", note };
   }
-  await book(input, priced.total, "MEASURED", undefined, { attempts: result.attempts, servedBy: result.servedBy, requestId: result.providerRequestId });
+  await book(input, reservationId, priced.total, "MEASURED", undefined, { attempts: result.attempts, servedBy: result.servedBy, requestId: result.providerRequestId });
   return { result, costMicros: priced.total, basis: "MEASURED", note: result.notes.join("; ") || undefined };
 }

@@ -39,6 +39,36 @@ export const STARTER_PROMPTS: { key: string; name: string; kind: PromptKind; bod
     ],
   },
   {
+    key: "brief.default",
+    name: "Content brief",
+    kind: "IDEATION",
+    body: "Turn this idea into a brief for a {{format}} by {{creator_name}} (niche: {{creator_niche}}; audience: {{creator_audience}}; tone: {{creator_tone}}).\n\nTitle: {{title}}\nIdea: {{idea}}{{#if campaign_context}}\nCampaign: {{campaign_context}}{{/if}}\n\nGive the angle, a scroll-stopping hook, the single key message, the visual direction (setting, styling, mood, light) and the content pillar it belongs to.",
+    variables: [
+      { name: "format", type: "text", label: "Format" },
+      { name: "title", type: "text", label: "Title" },
+      { name: "idea", type: "longtext", label: "Idea" },
+      { name: "campaign_context", type: "longtext", label: "Campaign context", required: false },
+    ],
+  },
+  {
+    key: "script.photo.default",
+    name: "Photo shot list",
+    kind: "SCRIPT",
+    body: "Plan exactly {{shots}} photo(s) for a {{format}} by {{creator_name}} based on this brief:\n{{brief}}\n\nFor each photo describe the scene for an image model (setting, pose, action, wardrobe, light, framing; the character itself is described separately) and its purpose in the post. Keep the character, styling and setting consistent across photos.",
+    variables: [
+      { name: "shots", type: "number", label: "Number of photos", min: 1, max: 10, default: "1" },
+      { name: "format", type: "text", label: "Format" },
+      { name: "brief", type: "longtext", label: "Brief" },
+    ],
+  },
+  {
+    key: "qc.rubric.default",
+    name: "Quality rubric",
+    kind: "QUALITY_RULES",
+    body: "Score 0-100. Fail (error) on: the person does not match the reference character; extra or malformed fingers, limbs or teeth; garbled text in the image; a real brand logo or recognisable real person; anything sexual, violent or involving minors; a caption with medical, financial or political claims. Warn on: off-brief scene, inconsistent styling between photos, weak hook, caption longer than needed.",
+    variables: [],
+  },
+  {
     key: "safety.rules.global",
     name: "Global safety rules",
     kind: "SAFETY_RULES",

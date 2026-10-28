@@ -5,6 +5,8 @@ import { assertTransition } from "@/lib/state-machines";
 import { db } from "@/server/db";
 import { recordAudit, SYSTEM_ACTOR } from "@/server/audit";
 import { QUEUES, type QueueName } from "@/server/queue/definitions";
+import { markStepFailed } from "@/server/services/content-pipeline";
+import type { PipelineStep } from "@/lib/content-pipeline";
 
 export const GENERATION_KIND_QUEUE: Record<GenerationKind, QueueName> = {
   TEXT: "generation-text",
@@ -41,7 +43,7 @@ export async function detectStuckJobs(now = new Date()): Promise<StuckReport> {
 
   const running = await db.generationJob.findMany({
     where: { status: "RUNNING" },
-    select: { id: true, kind: true, startedAt: true, updatedAt: true },
+    select: { id: true, kind: true, step: true, contentItemId: true, startedAt: true, updatedAt: true },
   });
   for (const job of running) {
     const limit = QUEUES[GENERATION_KIND_QUEUE[job.kind]].stuckAfterMs;
@@ -55,6 +57,8 @@ export async function detectStuckJobs(now = new Date()): Promise<StuckReport> {
     if (updated.count === 1) {
       report.generationFailed++;
       await recordAudit(SYSTEM_ACTOR, { action: "generation_job.marked_stuck", entityType: "generation_job", entityId: job.id });
+      // A content pipeline step stops its chain; the operator resumes it from the content item.
+      if (job.contentItemId && job.step) await markStepFailed(job.contentItemId, job.step as PipelineStep, "The step made no progress and was stopped");
     }
   }
 

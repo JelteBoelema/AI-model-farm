@@ -1,36 +1,22 @@
 // Executes queued prompt test runs on the generation workers.
 
-import { randomUUID } from "node:crypto";
 import { UnrecoverableError, type Job } from "bullmq";
-import type { CostBasis, Prisma } from "@prisma/client";
-import { sniffImage } from "@/lib/image-meta";
+import type { CostBasis } from "@prisma/client";
 import { PausedError } from "@/server/controls";
 import { db } from "@/server/db";
 import { DomainError } from "@/server/errors";
 import { logger } from "@/server/logger";
 import { parseConfig } from "@/server/providers/registry";
-import { ProviderError, type GenerationRequest, type ReferenceImage } from "@/server/providers/types";
+import { ProviderError, type GenerationRequest } from "@/server/providers/types";
 import { ChargedProviderError, executeGeneration } from "@/server/services/generation";
 import { BudgetBlockedError } from "@/server/services/spend-guard";
-import { sha256Hex } from "@/server/crypto";
-import { buildStorageKey, storage } from "@/server/storage";
+import { canonicalReferences, storeGeneratedImage } from "@/server/services/media";
 
 export interface PromptTestJob {
   runId: string;
 }
 
 const TERMINAL = new Set(["SUCCEEDED", "FAILED", "RENDERED"]);
-const MAX_REFERENCES = 4;
-
-async function canonicalReferences(creatorId: string): Promise<ReferenceImage[]> {
-  const profile = await db.characterProfile.findFirst({
-    where: { creatorId, status: "APPROVED" },
-    include: { references: { where: { isCanonical: true }, include: { mediaAsset: true }, take: MAX_REFERENCES } },
-  });
-  const refs: ReferenceImage[] = [];
-  for (const r of profile?.references ?? []) refs.push({ bytes: await storage().get(r.mediaAsset.storageKey), mimeType: r.mediaAsset.mimeType });
-  return refs;
-}
 
 function classify(err: unknown): { kind: string; message: string; retryable: boolean } {
   if (err instanceof ProviderError) return { kind: err.kind, message: err.message, retryable: err.retryable };
@@ -83,27 +69,15 @@ export async function runPromptTestJob(job: Pick<Job<PromptTestJob>, "data" | "a
     let output: string | null = null;
     const first = exec.result.outputs[0];
     if (first?.kind === "image" && first.bytes) {
-      const meta = sniffImage(first.bytes);
-      const key = buildStorageKey({ creatorId: run.creatorId, kind: "generated", id: randomUUID(), extension: meta?.extension ?? "png" });
-      await storage().put(key, first.bytes, meta?.mimeType ?? first.mimeType ?? "image/png");
-      const asset = await db.mediaAsset.create({
-        data: {
-          creatorId: run.creatorId,
-          kind: "IMAGE",
-          source: "GENERATED",
-          status: "PENDING_REVIEW",
-          storageKey: key,
-          mimeType: meta?.mimeType ?? "image/png",
-          sizeBytes: BigInt(first.bytes.length),
-          checksumSha256: sha256Hex(first.bytes),
-          width: meta?.width ?? null,
-          height: meta?.height ?? null,
-          providerKey: provider.key,
-          modelVersion: exec.result.servedBy,
-          promptSnapshot: run.renderedPrompt,
-          paramsSnapshot: request.params as Prisma.InputJsonValue,
-          isMock: provider.isMock,
-        },
+      const asset = await storeGeneratedImage({
+        bytes: first.bytes,
+        mimeType: first.mimeType,
+        creatorId: run.creatorId,
+        providerKey: provider.key,
+        modelVersion: exec.result.servedBy,
+        prompt: run.renderedPrompt,
+        params: request.params,
+        isMock: provider.isMock,
       });
       outputMediaId = asset.id;
     } else {

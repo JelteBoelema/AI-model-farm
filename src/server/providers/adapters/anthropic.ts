@@ -15,6 +15,12 @@ const LONG_CONTEXT_MODELS: Record<string, number> = { "claude-haiku-5-5": 100_00
 // Server-side refusal fallback ("default" routing). Not offered for Haiku models.
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 const supportsFallback = (model: string) => !model.startsWith("claude-haiku");
+// Images (e.g. for visual quality control). The estimate assumes a generous per-image token count
+// because the exact figure depends on the resolution the API resizes to.
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
+const MAX_IMAGES = 8;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const IMAGE_TOKEN_ESTIMATE = 6_000;
 
 export interface AnthropicAdapterOptions {
   apiKey: string;
@@ -92,13 +98,18 @@ export class AnthropicAdapter implements ProviderAdapter {
     if (req.prompt.length + (req.system?.length ?? 0) > MAX_PROMPT_CHARS) throw new ProviderError("invalid_input", "Prompt too long");
     const max = req.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
     if (!Number.isInteger(max) || max < 1 || max > 64_000) throw new ProviderError("invalid_input", "maxOutputTokens must be 1–64000");
-    if (req.referenceImages?.length) throw new ProviderError("invalid_input", "Reference images are not supported for text prompts here");
+    const images = req.referenceImages ?? [];
+    if (images.length > MAX_IMAGES) throw new ProviderError("invalid_input", `At most ${MAX_IMAGES} images per request`);
+    for (const img of images) {
+      if (!(IMAGE_TYPES as readonly string[]).includes(img.mimeType)) throw new ProviderError("invalid_input", `Unsupported image type ${img.mimeType}`);
+      if (img.bytes.length > MAX_IMAGE_BYTES) throw new ProviderError("invalid_input", "Image larger than 5 MB");
+    }
   }
 
   estimate(req: GenerationRequest): CostEstimate {
     // Conservative: ~3 characters per token (real text is usually closer to 4), and the full
     // max_tokens of output, which includes thinking tokens on current models.
-    const inputTokens = Math.ceil((req.prompt.length + (req.system?.length ?? 0)) / 3) + 50;
+    const inputTokens = Math.ceil((req.prompt.length + (req.system?.length ?? 0)) / 3) + 50 + (req.referenceImages?.length ?? 0) * IMAGE_TOKEN_ESTIMATE;
     const outputTokens = req.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
     return {
       maxUsage: usageUnits(req.model, { input_tokens: inputTokens, output_tokens: outputTokens }),
@@ -116,7 +127,20 @@ export class AnthropicAdapter implements ProviderAdapter {
           model: req.model,
           max_tokens: req.maxOutputTokens ?? DEFAULT_MAX_TOKENS,
           ...(req.system ? { system: req.system } : {}),
-          messages: [{ role: "user", content: req.prompt }],
+          messages: [
+            {
+              role: "user",
+              content: req.referenceImages?.length
+                ? [
+                    ...req.referenceImages.map((img) => ({
+                      type: "image" as const,
+                      source: { type: "base64" as const, media_type: img.mimeType as (typeof IMAGE_TYPES)[number], data: img.bytes.toString("base64") },
+                    })),
+                    { type: "text" as const, text: req.prompt },
+                  ]
+                : req.prompt,
+            },
+          ],
           output_config: {
             effort: (req.params.effort as AnthropicAdapterOptions["effort"]) ?? this.options.effort ?? "medium",
             ...(req.jsonSchema ? { format: { type: "json_schema" as const, schema: req.jsonSchema } } : {}),

@@ -1,7 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { Eye, FlaskConical } from "lucide-react";
 import { toast } from "sonner";
 import { OriginBadge } from "@/components/dashboard/origin-badge";
@@ -12,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import type { VariableDef } from "@/lib/schemas/prompt";
+import { useAutoRefresh } from "@/lib/use-auto-refresh";
 import { cn } from "@/lib/utils";
 import { previewPromptAction, runPromptTestAction } from "@/app/(dashboard)/prompts/actions";
 
@@ -30,16 +30,6 @@ export interface TestRunView {
   outputUrl: string | null;
   error: string | null;
   cost: string;
-}
-
-/** Re-renders the page every 2 s while test runs are queued or running. */
-function useAutoRefresh(active: boolean) {
-  const router = useRouter();
-  useEffect(() => {
-    if (!active) return;
-    const t = setInterval(() => router.refresh(), 2000);
-    return () => clearInterval(t);
-  }, [active, router]);
 }
 
 interface Option {

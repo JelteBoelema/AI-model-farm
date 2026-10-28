@@ -209,8 +209,10 @@ export async function pinVersion(by: ActingUser, campaignId: string, versionId: 
 /**
  * Which published version applies? A campaign pin wins; otherwise the latest published version of
  * the most specific template: campaign-scoped → creator-scoped → global (ties broken by key).
+ * With a key prefix only templates following that naming convention qualify (e.g. "script.photo"
+ * for photo shot lists, so a video script template is never used for a carousel).
  */
-export async function resolvePromptVersion(q: { templateKey?: string; kind?: PromptKind; creatorId?: string | null; campaignId?: string | null }) {
+export async function resolvePromptVersion(q: { templateKey?: string; kind?: PromptKind; keyPrefix?: string; creatorId?: string | null; campaignId?: string | null }) {
   if (!q.templateKey && !q.kind) throw new Error("templateKey or kind is required");
   const scopes: Prisma.PromptTemplateWhereInput[] = [
     ...(q.campaignId ? [{ scope: "CAMPAIGN" as const, campaignId: q.campaignId }] : []),
@@ -219,7 +221,7 @@ export async function resolvePromptVersion(q: { templateKey?: string; kind?: Pro
   ];
   for (const scope of scopes) {
     const templates = await db.promptTemplate.findMany({
-      where: { ...scope, archivedAt: null, ...(q.templateKey ? { key: q.templateKey } : { kind: q.kind }) },
+      where: { ...scope, archivedAt: null, ...(q.templateKey ? { key: q.templateKey } : { kind: q.kind, ...(q.keyPrefix ? { key: { startsWith: q.keyPrefix } } : {}) }) },
       orderBy: { key: "asc" },
       select: { id: true },
     });

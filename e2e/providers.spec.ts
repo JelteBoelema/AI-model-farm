@@ -17,7 +17,7 @@ test("image prompt test produces a watermarked mock image via the worker", async
 
   // the generated image is in the media library, labelled as mock
   await page.goto("/media");
-  await expect(page.getByRole("cell", { name: /Generated · mock-image/ }).first()).toBeVisible();
+  await expect(page.getByRole("figure").filter({ hasText: "Prompt test output" }).filter({ hasText: "mock-image" }).first()).toBeVisible();
 });
 
 test("admin manages a provider's price list; readiness reflects it", async ({ page }) => {

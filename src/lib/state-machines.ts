@@ -49,14 +49,15 @@ export const contentTransitions: TransitionTable<ContentStatus> = {
   SCHEDULED: ["PUBLISHING", "APPROVED"],
   PUBLISHING: ["PUBLISHED", "SCHEDULED", "FAILED"],
   PUBLISHED: ["ARCHIVED"],
-  FAILED: ["PROMPTED", "GENERATING", "APPROVED", "SCHEDULED", "ARCHIVED"],
+  FAILED: ["PROMPTED", "GENERATING", "QC_REVIEW", "APPROVED", "SCHEDULED", "ARCHIVED"],
   REJECTED: ["IDEA", "ARCHIVED"],
   ARCHIVED: [],
 };
 
 export const generationJobTransitions: TransitionTable<GenerationJobStatus> = {
   QUEUED: ["RUNNING", "CANCELLED", "BLOCKED_BUDGET", "BLOCKED_POLICY"],
-  RUNNING: ["SUCCEEDED", "FAILED", "CANCELLED"],
+  // Budget and policy checks run inside the attempt, so a running job can end blocked.
+  RUNNING: ["SUCCEEDED", "FAILED", "CANCELLED", "BLOCKED_BUDGET", "BLOCKED_POLICY"],
   FAILED: ["QUEUED", "DEAD_LETTER"],
   BLOCKED_BUDGET: ["QUEUED", "CANCELLED"],
   BLOCKED_POLICY: ["QUEUED", "CANCELLED"],

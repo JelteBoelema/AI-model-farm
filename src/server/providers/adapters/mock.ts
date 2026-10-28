@@ -3,7 +3,7 @@
 
 import { createHash } from "node:crypto";
 import { drawText, RgbImage, textWidth } from "../png";
-import { mockGenerateText } from "../mock-text";
+import { mockFromSchema, mockGenerateText } from "../mock-text";
 import { ProviderError, type CostEstimate, type GenerationRequest, type GenerationResult, type ModelCapability, type ProviderAdapter } from "../types";
 
 export class MockTextAdapter implements ProviderAdapter {
@@ -17,7 +17,6 @@ export class MockTextAdapter implements ProviderAdapter {
   validate(req: GenerationRequest) {
     if (req.capability !== "TEXT") throw new ProviderError("invalid_input", "Mock text adapter only handles text");
     if (!req.prompt.trim()) throw new ProviderError("invalid_input", "Empty prompt");
-    if (req.jsonSchema) throw new ProviderError("invalid_input", "The mock text provider cannot produce structured output");
   }
 
   estimate(req: GenerationRequest): CostEstimate {
@@ -27,7 +26,9 @@ export class MockTextAdapter implements ProviderAdapter {
   async generate(req: GenerationRequest): Promise<GenerationResult> {
     this.validate(req);
     const kind = String(req.params.kind ?? "text");
-    const text = mockGenerateText(req.system ? `${req.prompt}\n\nRules:\n${req.system}` : req.prompt, kind);
+    const text = req.jsonSchema
+      ? JSON.stringify(mockFromSchema(req.jsonSchema, `${kind}\n${req.prompt}`))
+      : mockGenerateText(req.system ? `${req.prompt}\n\nRules:\n${req.system}` : req.prompt, kind);
     return {
       outputs: [{ kind: "text", text }],
       attempts: [{ model: "mock", usage: { input_mtok: Math.ceil(req.prompt.length / 4), output_mtok: Math.ceil(text.length / 4) } }],
@@ -64,9 +65,10 @@ export class MockImageAdapter implements ProviderAdapter {
 
   async generate(req: GenerationRequest): Promise<GenerationResult> {
     this.validate(req);
-    const digest = createHash("sha256").update(req.prompt).digest();
+    const digest = createHash("sha256").update(`${req.prompt}\n${String(req.params.seed ?? "")}`).digest();
     const [w, h] = String(req.params.size ?? "1024x1536").split("x").map(Number) as [number, number];
-    const scale = 512 / Math.max(w || 1024, h || 1024);
+    // Shortest side 512 px: large enough for the technical checks, small enough to stay fast.
+    const scale = 512 / Math.min(w || 1024, h || 1536);
     const img = new RgbImage(Math.round((w || 1024) * scale), Math.round((h || 1536) * scale));
     const a = PALETTE[digest[0]! % PALETTE.length]!;
     const b = PALETTE[digest[1]! % PALETTE.length]!;

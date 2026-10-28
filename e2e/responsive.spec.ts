@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { login, OWNER } from "./helpers";
 
-for (const path of ["/", "/creators", "/settings", "/workflows", "/costs"]) {
+for (const path of ["/", "/creators", "/settings", "/workflows", "/costs", "/content", "/media"]) {
   test(`no horizontal page scroll on mobile: ${path}`, async ({ page }) => {
     await login(page, OWNER);
     await page.goto(path);
