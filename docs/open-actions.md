@@ -2,25 +2,15 @@
 
 Acties voor de eigenaar die bewust zijn uitgesteld tot de laatste fase, als het platform af is. Claude werkt deze lijst bij bij elke fase.
 
-## 1. Pull requests reviewen en mergen
+## 1. Pull requests reviewen en mergen — afgerond (28-10-2026)
 
-Fase 3–10 bevatten databasemigraties (`prompt_studio`, `provider_execution`, `content_factory`, `video_engine`, `publishing`, `autonomy`, `workflow_clock`, `analytics`, `mfa`); die worden bij deployment automatisch toegepast door de `migrate`-taak.
+Alle fasen zijn in volgorde naar `main` gemerged (merge commits, de geschiedenis per fase blijft zichtbaar):
+- [#1](https://github.com/JelteBoelema/AI-model-farm/pull/1) tot en met [#9](https://github.com/JelteBoelema/AI-model-farm/pull/9);
+- `main` is identiek aan de geteste eindstand van fase 10.
 
-De fasen worden gestapeld opgeleverd: elke fase-branch bouwt voort op de vorige. Merge ze **in volgorde** en klik na elke merge op *Delete branch*: GitHub zet de basis van de volgende PR dan automatisch op `main` (anders handmatig: *Edit → base: main*).
+De databasemigraties worden bij de eerste deployment toegepast door de `migrate`-taak.
 
-| Fase | Pull request | Basis | Status |
-|---|---|---|---|
-| 2 — Creator Engine | [#1](https://github.com/JelteBoelema/AI-model-farm/pull/1) | `main` | wacht op review |
-| 3 — Prompt Studio | [#2](https://github.com/JelteBoelema/AI-model-farm/pull/2) | `phase-2-creator-engine` | wacht op review (na #1) |
-| 4 — AI Providers | [#3](https://github.com/JelteBoelema/AI-model-farm/pull/3) | `phase-3-prompt-studio` | wacht op review (na #2) |
-| 5 — Content Factory | [#4](https://github.com/JelteBoelema/AI-model-farm/pull/4) | `phase-4-ai-providers` | wacht op review (na #3) |
-| 6 — Video Engine | [#5](https://github.com/JelteBoelema/AI-model-farm/pull/5) | `phase-5-content-factory` | wacht op review (na #4) |
-| 7 — Publishing | [#6](https://github.com/JelteBoelema/AI-model-farm/pull/6) | `phase-6-video-engine` | wacht op review (na #5) |
-| 8 — Autonomy | [#7](https://github.com/JelteBoelema/AI-model-farm/pull/7) | `phase-7-publishing` | wacht op review (na #6) |
-| 9 — Analytics | [#8](https://github.com/JelteBoelema/AI-model-farm/pull/8) | `phase-8-autonomy` | wacht op review (na #7) |
-| 10 — Production Readiness | [#9](https://github.com/JelteBoelema/AI-model-farm/pull/9) | `phase-9-analytics` | wacht op review (na #8) |
-
-Per PR: beschrijving lezen, de CI-checks moeten groen zijn, eventueel lokaal draaien (`README.md` → *Snel starten*), dan *Merge*.
+Nog te doen: de gemergde branches `phase-2-…` tot en met `phase-10-…` mogen weg (*Delete branch* op elke PR). Ze zijn niet meer nodig en via *Restore branch* altijd terug te halen.
 
 ## 2. Meta-app voor Instagram (nodig voor fase 7)
 
@@ -89,7 +79,7 @@ Volg `docs/deployment.md` → *Eerste installatie*. Wat jij moet doen of aanleve
 6. **Na de eerste deploy**:
    - de alarmtest in AWS (`docs/runbooks/alarms.md`) en de RDS-herstelproef op staging (`docs/runbooks/restore.md`), en de uitkomst vastleggen in `docs/runbooks/drills.md`;
    - de load test herhalen op staging met 2 webtaken.
-7. **Externe pentest** laten uitvoeren vóór de livegang (scope en bevindingen tot nu toe: `docs/security-review.md`).
+7. **Externe pentest** laten uitvoeren vóór de livegang. De opdrachtomschrijving voor een pentestbureau staat klaar in `docs/pentest-scope.md`; de bevindingen tot nu toe in `docs/security-review.md`.
 8. Optioneel: **single sign-on** (Terraform-variabele `oidc` en het secret `oidc-client-secret`; zie `docs/runbooks/access.md`).
 9. Later: **het anonimiseren van persoonsgegevens in auditlogs** na de bewaartermijn automatiseren (nu op verzoek handmatig).
 
