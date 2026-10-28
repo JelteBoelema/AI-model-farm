@@ -106,9 +106,19 @@ jobs:
       # Container scan: fixable high/critical vulnerabilities in OS packages or dependencies fail the build.
       - name: Scan image
         run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.57.1 image \
-            --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress \
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/out" aquasec/trivy:0.57.1 image \
+            --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --no-progress --format json --output /out/trivy.json \
             creator-farm/${{ matrix.target }}:ci
+          # One annotation per finding, then fail if there were any.
+          python3 - <<'PY'
+          import json, sys
+          found = 0
+          for r in json.load(open("trivy.json")).get("Results", []):
+              for v in r.get("Vulnerabilities") or []:
+                  found += 1
+                  print(f"::error title={v['VulnerabilityID']} ({v['Severity']})::{r['Target']}: {v['PkgName']} {v['InstalledVersion']} -> {v.get('FixedVersion', '?')}")
+          sys.exit(1 if found else 0)
+          PY
 
   dependencies:
     name: Dependency & secret scan
