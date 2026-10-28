@@ -7,7 +7,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.80"
+      version = "~> 6.70"
     }
   }
   # Remote state: configured at `terraform init -backend-config=...` (S3 bucket + DynamoDB lock).
