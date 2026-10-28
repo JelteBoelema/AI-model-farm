@@ -4,7 +4,7 @@ Acties voor de eigenaar die bewust zijn uitgesteld tot de laatste fase, als het 
 
 ## 1. Pull requests reviewen en mergen
 
-Fase 3, 4 en 5 bevatten databasemigraties (`prompt_studio`, `provider_execution`, `content_factory`); die worden bij deployment automatisch toegepast door de `migrate`-taak.
+Fase 3–6 bevatten databasemigraties (`prompt_studio`, `provider_execution`, `content_factory`, `video_engine`); die worden bij deployment automatisch toegepast door de `migrate`-taak.
 
 De fasen worden gestapeld opgeleverd: elke fase-branch bouwt voort op de vorige. Merge ze **in volgorde** en klik na elke merge op *Delete branch*: GitHub zet de basis van de volgende PR dan automatisch op `main` (anders handmatig: *Edit → base: main*).
 
@@ -14,6 +14,7 @@ De fasen worden gestapeld opgeleverd: elke fase-branch bouwt voort op de vorige.
 | 3 — Prompt Studio | [#2](https://github.com/JelteBoelema/AI-model-farm/pull/2) | `phase-2-creator-engine` | wacht op review (na #1) |
 | 4 — AI Providers | [#3](https://github.com/JelteBoelema/AI-model-farm/pull/3) | `phase-3-prompt-studio` | wacht op review (na #2) |
 | 5 — Content Factory | [#4](https://github.com/JelteBoelema/AI-model-farm/pull/4) | `phase-4-ai-providers` | wacht op review (na #3) |
+| 6 — Video Engine | #5 | `phase-5-content-factory` | wacht op review (na #4) |
 
 Per PR: beschrijving lezen, de CI-checks moeten groen zijn, eventueel lokaal draaien (`README.md` → *Snel starten*), dan *Merge*.
 
@@ -33,15 +34,18 @@ App review bij Meta kan weken duren. De stappen (namen van permissies en scherme
 
 Zonder deze stappen draait alles op de gelabelde mockproviders; betaalde generatie blijft geblokkeerd.
 
-1. **API-sleutels** aanmaken bij Anthropic (console) en OpenAI. Niet in chat of code plakken: lokaal in `.env` (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`), in productie in AWS Secrets Manager (`creatorfarm/prod/anthropic`, `creatorfarm/prod/openai`) en op **AI Providers** als `aws-sm:…`-referentie.
+1. **API-sleutels** aanmaken bij Anthropic (console), OpenAI, Google AI Studio (Gemini API, voor Veo) en ElevenLabs. Niet in chat of code plakken: lokaal in `.env` (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENAI_API_KEY`, `ELEVENLABS_API_KEY`), in productie in AWS Secrets Manager (`creatorfarm/prod/anthropic`, `…/openai`, `…/google-genai`, `…/elevenlabs`) en op **AI Providers** als `aws-sm:…`-referentie.
 2. **Farm-breed maandbudget** instellen (seed met `SEED_MONTHLY_BUDGET_EUR`, of onder Kosten → Budgetten). Zonder dit budget wordt geen enkele betaalde call uitgevoerd.
 3. **Prijslijsten** invullen op **AI Providers**: voor Claude staat een voorinstelling klaar — prijzen controleren op de bronpagina en de **wisselkoers USD→EUR** invullen. Voor OpenAI Images de actuele prijzen van het gekozen model overnemen uit de officiële prijslijst.
 4. **Model voor OpenAI Images bevestigen**: standaard staat `gpt-image-2` (gpt-image-1 is volgens openbare bronnen op 23-10-2026 uitgefaseerd). Dit is nog niet live geverifieerd; de verbindingstest toont welke beeldmodellen je sleutel ziet.
-5. Per provider op **Test connection** klikken en daarna inschakelen.
-6. Eenmalig `pnpm test:live --yes` draaien (kost enkele centen) en de uitkomst aan Claude doorgeven, zodat de adapters definitief geverifieerd zijn.
-7. Na de deployment van fase 5 eenmalig de seed draaien (`pnpm db:seed`): die voegt alleen de nieuwe starttemplates toe (brief, fotoshotlist, QC-rubric) en laat bestaande templates ongemoeid.
+5. Per provider op **Test connection** klikken en daarna inschakelen. Voor ElevenLabs eerst een **ontworpen (synthetische) stem** kiezen en het stem-ID invullen onder *Configure* (per creator te overschrijven); nooit een gekloonde stem zonder schriftelijke toestemming.
+   - Prijzen voor Veo per videoseconde en voor ElevenLabs per 1.000 tekens overnemen uit de officiële prijslijsten.
+   - Veo-modelnaam en parameters bevestigen: endpoint en antwoordvorm zijn bevestigd, de parameternamen (beeldverhouding, duur, referentiebeelden) nog niet.
+6. Eenmalig `pnpm test:live --yes` draaien (kost enkele centen; met `SMOKE_VOICE_ID` ook spraak) en daarna `pnpm test:live --yes --video` (één clip van 4 seconden), en de uitkomst aan Claude doorgeven, zodat de adapters definitief geverifieerd zijn.
+7. Na de deployment eenmalig de seed draaien (`pnpm db:seed`): die voegt alleen ontbrekende starttemplates toe (brief, fotoshotlist, QC-rubric, videoscène) en laat bestaande templates ongemoeid. Wie `script.short_video.default` al had: in de Prompt Studio een nieuwe versie maken die `{{scenes}}` en `{{brief}}` gebruikt (de oude werkt, maar noemt het aantal scènes niet).
 8. Per creator een **goedgekeurd karakterprofiel met canonieke referentiefoto's**: zonder profiel start de productie niet, zonder referenties controleert QC de karakterconsistentie niet.
-9. Optioneel: in de omgevingsinstellingen van Claude Code `developers.openai.com` toevoegen aan de toegestane domeinen, zodat de OpenAI-documentatie tijdens het bouwen gecontroleerd kan worden.
+9. Optioneel: in de omgevingsinstellingen van Claude Code `developers.openai.com`, `ai.google.dev` en `elevenlabs.io` toevoegen aan de toegestane domeinen, zodat de providerdocumentatie tijdens het bouwen gecontroleerd kan worden.
+10. **Lip-syncprovider** kiezen voor talking-headvideo's (later; tot dan zijn alleen korte video's met voice-over te produceren).
 
 ## Overige configuratie (staat al in de documentatie)
 

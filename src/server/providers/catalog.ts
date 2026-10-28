@@ -3,6 +3,8 @@
 
 import type { ProviderCapability } from "@prisma/client";
 import { ANTHROPIC_BULK_MODEL, ANTHROPIC_DEFAULT_MODEL } from "./adapters/anthropic";
+import { ELEVENLABS_DEFAULT_MODEL } from "./adapters/elevenlabs";
+import { VEO_DEFAULT_MODEL } from "./adapters/google-veo";
 import { OPENAI_IMAGE_DEFAULT_MODEL } from "./adapters/openai-images";
 
 export interface CatalogEntry {
@@ -60,9 +62,10 @@ export const PROVIDER_CATALOG: CatalogEntry[] = [
     capabilities: ["VIDEO"],
     credentialRef: "env:GOOGLE_GENAI_API_KEY",
     isMock: false,
-    adapterPhase: 6,
+    adapterPhase: null,
     priority: 20,
-    rationale: "Text/image-to-video with native audio, vertical output.",
+    rationale: "Scene clips (text-to-video with character reference images), vertical 9:16, long-running jobs.",
+    defaultConfig: { model: VEO_DEFAULT_MODEL, maxRequestsPerMinute: 10, timeoutMs: 120_000 },
   },
   {
     key: "runway",
@@ -70,9 +73,9 @@ export const PROVIDER_CATALOG: CatalogEntry[] = [
     capabilities: ["VIDEO"],
     credentialRef: "env:RUNWAY_API_KEY",
     isMock: false,
-    adapterPhase: 6,
+    adapterPhase: 10,
     priority: 30,
-    rationale: "Image-to-video with reference images; fallback video provider.",
+    rationale: "Fallback video provider candidate; adapter only after the consistency benchmark.",
   },
   {
     key: "elevenlabs",
@@ -80,9 +83,10 @@ export const PROVIDER_CATALOG: CatalogEntry[] = [
     capabilities: ["SPEECH"],
     credentialRef: "env:ELEVENLABS_API_KEY",
     isMock: false,
-    adapterPhase: 6,
+    adapterPhase: null,
     priority: 20,
     rationale: "Synthetic voices for voice-over (designed voices only; no cloning without consent).",
+    defaultConfig: { model: ELEVENLABS_DEFAULT_MODEL, maxRequestsPerMinute: 30, timeoutMs: 60_000 },
   },
   {
     key: "mock-text",
@@ -109,12 +113,13 @@ export const PROVIDER_CATALOG: CatalogEntry[] = [
   {
     key: "mock-video",
     displayName: "Mock video provider",
-    capabilities: ["VIDEO", "SPEECH", "LIPSYNC"],
+    capabilities: ["VIDEO", "SPEECH"],
     credentialRef: null,
     isMock: true,
-    adapterPhase: 6,
+    adapterPhase: null,
     priority: 900,
-    rationale: "FFmpeg-rendered, watermarked test clips for the video pipeline in mock mode.",
+    rationale: "FFmpeg-rendered, watermarked test clips and beeping placeholder voices for the video pipeline in mock mode.",
+    defaultConfig: { ...MOCK_CONFIG, timeoutMs: 60_000 },
   },
 ];
 

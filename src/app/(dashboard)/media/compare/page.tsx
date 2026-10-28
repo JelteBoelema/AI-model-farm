@@ -42,8 +42,12 @@ export default async function CompareMediaPage({ searchParams }: Props) {
                 </CardTitle>
               </CardHeader>
               <CardContent className="grid gap-3 text-sm">
-                {/* eslint-disable-next-line @next/next/no-img-element -- authenticated media route */}
-                <img src={urls[i]} alt={`Asset ${i + 1}`} className="max-h-[60vh] w-full rounded-md bg-muted object-contain" />
+                {a.kind === "VIDEO" ? (
+                  <video controls preload="metadata" src={urls[i]} className="max-h-[60vh] w-full rounded-md bg-black object-contain" aria-label={`Asset ${i + 1} player`} />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element -- authenticated media route
+                  <img src={urls[i]} alt={`Asset ${i + 1}`} className="max-h-[60vh] w-full rounded-md bg-muted object-contain" />
+                )}
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
                   <dt className="text-muted-foreground">Creator</dt>
                   <dd>{a.creator?.name ?? "Shared"}</dd>
@@ -51,7 +55,8 @@ export default async function CompareMediaPage({ searchParams }: Props) {
                   <dd>{a.providerKey ?? "—"} {a.modelVersion ? <span className="font-mono">({a.modelVersion})</span> : null}</dd>
                   <dt className="text-muted-foreground">Size</dt>
                   <dd>
-                    {a.width}×{a.height} · {formatNumber(Number(a.sizeBytes))} B · {a.mimeType}
+                    {a.width}×{a.height}
+                    {a.durationMs ? ` · ${(a.durationMs / 1000).toFixed(1)} s` : ""} · {formatNumber(Number(a.sizeBytes))} B · {a.mimeType}
                   </dd>
                   <dt className="text-muted-foreground">Quality score</dt>
                   <dd>{a.qualityScore ?? "—"}</dd>

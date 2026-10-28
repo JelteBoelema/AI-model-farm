@@ -16,6 +16,7 @@ export interface ProviderConfigView {
   effort?: string;
   imageSize?: string;
   imageQuality?: string;
+  voiceId?: string;
   maxRequestsPerMinute: number;
   timeoutMs: number;
 }
@@ -61,7 +62,7 @@ export function EnableToggle({ providerId, disabled }: { providerId: string; dis
   );
 }
 
-export function ConfigDialog({ providerId, name, capability, config }: { providerId: string; name: string; capability: "TEXT" | "IMAGE" | "OTHER"; config: ProviderConfigView }) {
+export function ConfigDialog({ providerId, name, capability, config }: { providerId: string; name: string; capability: "TEXT" | "IMAGE" | "SPEECH" | "OTHER"; config: ProviderConfigView }) {
   const [open, setOpen] = useState(false);
   const [c, setC] = useState(config);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +78,7 @@ export function ConfigDialog({ providerId, name, capability, config }: { provide
           effort: capability === "TEXT" ? (c.effort as never) || undefined : undefined,
           imageSize: capability === "IMAGE" ? (c.imageSize as never) || undefined : undefined,
           imageQuality: capability === "IMAGE" ? (c.imageQuality as never) || undefined : undefined,
+          voiceId: capability === "SPEECH" ? c.voiceId?.trim() || undefined : undefined,
           maxRequestsPerMinute: Number(c.maxRequestsPerMinute),
           timeoutMs: Number(c.timeoutMs),
         },
@@ -127,6 +129,11 @@ export function ConfigDialog({ providerId, name, capability, config }: { provide
                 </NativeSelect>
               </Field>
             </div>
+          ) : null}
+          {capability === "SPEECH" ? (
+            <Field label="Default voice id" htmlFor="cfg-voice" hint="A designed (synthetic) voice from your voice library. Never a cloned voice without written consent.">
+              <Input id="cfg-voice" value={c.voiceId ?? ""} onChange={(e) => setC({ ...c, voiceId: e.target.value })} className="font-mono" />
+            </Field>
           ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Max requests / minute" htmlFor="cfg-rpm">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ensureDisclosure, PHOTO_FORMATS, STEP_JSON_SCHEMAS, STEP_OUTPUTS, stepForStatus, technicalChecks, technicalPass } from "@/lib/content-pipeline";
+import { ensureDisclosure, FORMAT_SPECS, STEP_JSON_SCHEMAS, STEP_OUTPUTS, stepForStatus, technicalChecks, technicalPass } from "@/lib/content-pipeline";
 import { canTransition } from "@/lib/state-machines";
 import { mockFromSchema } from "@/server/providers/mock-text";
 
@@ -43,7 +43,7 @@ describe("pipeline definition", () => {
   });
 
   it("defines photo formats with sane shot counts", () => {
-    for (const spec of Object.values(PHOTO_FORMATS)) expect(spec!.minShots <= spec!.defaultShots && spec!.defaultShots <= spec!.maxShots).toBe(true);
+    for (const spec of Object.values(FORMAT_SPECS)) expect(spec!.minShots <= spec!.defaultShots && spec!.defaultShots <= spec!.maxShots).toBe(true);
   });
 
   it("adds the AI disclosure only when missing", () => {

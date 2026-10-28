@@ -4,13 +4,13 @@
 
 import type { ContentFormat, ContentStatus, Prisma } from "@prisma/client";
 import { z } from "zod";
-import { isProducible, PHOTO_FORMATS } from "@/lib/content-pipeline";
+import { FORMAT_SPECS, isProducible } from "@/lib/content-pipeline";
 import { can, type Permission } from "@/lib/rbac";
 import { assertTransition } from "@/lib/state-machines";
 import { recordAudit } from "../audit";
 import { db } from "../db";
 import { DomainError } from "../errors";
-import { ACTIVE_JOB_STATUSES, formatSpec, resumeItem, scheduleImages, scheduleNextStep, shotList } from "./content-pipeline";
+import { ACTIVE_JOB_STATUSES, finalVideo, formatSpec, resumeItem, scheduleNextStep, scheduleTakes, shotList } from "./content-pipeline";
 import type { ActingUser } from "./users";
 
 function require(by: ActingUser, permission: Permission) {
@@ -54,9 +54,9 @@ async function assertTarget(input: { creatorId: string; campaignId: string | nul
     if (!link) throw new DomainError("This creator is not part of the campaign");
     if (["COMPLETED", "ARCHIVED"].includes(link.campaign.status)) throw new DomainError("The campaign is closed");
   }
-  const spec = PHOTO_FORMATS[input.format];
+  const spec = FORMAT_SPECS[input.format];
   if (spec && input.shots !== undefined && (input.shots < spec.minShots || input.shots > spec.maxShots))
-    throw new DomainError(`A ${spec.label.toLowerCase()} has ${spec.minShots === spec.maxShots ? spec.minShots : `${spec.minShots}–${spec.maxShots}`} image(s)`);
+    throw new DomainError(`A ${spec.label.toLowerCase()} has ${spec.minShots === spec.maxShots ? spec.minShots : `${spec.minShots}–${spec.maxShots}`} ${spec.kind === "video" ? "scene(s)" : "image(s)"}`);
 }
 
 async function maxGenerations() {
@@ -65,7 +65,7 @@ async function maxGenerations() {
 }
 
 function initialScript(format: ContentFormat, shots?: number): Prisma.InputJsonValue {
-  const spec = PHOTO_FORMATS[format];
+  const spec = FORMAT_SPECS[format];
   return spec ? { requestedShots: shots ?? spec.defaultShots } : {};
 }
 
@@ -154,7 +154,7 @@ async function assertIdle(itemId: string) {
 export async function startProduction(by: ActingUser, itemId: string) {
   require(by, "generation:run");
   const item = await loadForAction(itemId);
-  if (!isProducible(item.format)) formatSpec(item); // throws the phase-6 message
+  if (!isProducible(item.format)) formatSpec(item); // throws the explanation
   if (!STARTABLE.includes(item.status)) throw new DomainError(`An item in status ${item.status.toLowerCase().replaceAll("_", " ")} cannot be started`);
   if (item.creator.status !== "ACTIVE") throw new DomainError(`${item.creator.name} is ${item.creator.status.toLowerCase()}; activate the creator first`);
   const profile = await db.characterProfile.findFirst({ where: { creatorId: item.creatorId, status: "APPROVED" }, select: { id: true } });
@@ -174,7 +174,10 @@ export async function resumeProduction(by: ActingUser, itemId: string) {
   await resumeItem(itemId);
 }
 
-/** New take for one shot. Counts against the item's generation limit; QC runs again afterwards. */
+/**
+ * New take for one shot (photo) or scene (video clip). Counts against the item's generation limit;
+ * the other shots keep their takes, and assembly and QC run again afterwards.
+ */
 export async function regenerateShot(by: ActingUser, itemId: string, shot: number) {
   require(by, "generation:run");
   const item = await loadForAction(itemId);
@@ -182,7 +185,7 @@ export async function regenerateShot(by: ActingUser, itemId: string, shot: numbe
   if (item.creator.status !== "ACTIVE") throw new DomainError(`${item.creator.name} is ${item.creator.status.toLowerCase()}; activate the creator first`);
   if (!shotList(item)[shot]) throw new DomainError("Unknown shot");
   await assertIdle(itemId);
-  await scheduleImages(itemId, [shot], item.status);
+  await scheduleTakes(itemId, [shot], item.status);
   await recordAudit(by.actor, { action: "content.shot_regenerated", entityType: "content_item", entityId: itemId, metadata: { shot } });
 }
 
@@ -201,7 +204,7 @@ export async function approveMedia(by: ActingUser, assetId: string) {
   assertTransition("media", asset.status, "APPROVED");
   await db.$transaction(async (tx) => {
     if (asset.contentItemId && asset.shotIndex !== null) {
-      const previous = await tx.mediaAsset.findMany({ where: { contentItemId: asset.contentItemId, shotIndex: asset.shotIndex, status: "APPROVED", id: { not: asset.id } }, select: { id: true } });
+      const previous = await tx.mediaAsset.findMany({ where: { contentItemId: asset.contentItemId, shotIndex: asset.shotIndex, kind: asset.kind, status: "APPROVED", id: { not: asset.id } }, select: { id: true } });
       for (const p of previous) {
         assertTransition("media", "APPROVED", "REJECTED");
         await tx.mediaAsset.update({ where: { id: p.id }, data: { status: "REJECTED" } });
@@ -238,20 +241,41 @@ export async function approveContent(by: ActingUser, itemId: string, overrideRea
   if (item.status === "QC_REVIEW" && reason.length < 5) throw new DomainError("Quality control did not pass: explain why you approve anyway");
   await assertIdle(itemId);
   const shots = shotList(item);
-  const assets = await db.mediaAsset.findMany({ where: { contentItemId: itemId, source: "GENERATED", shotIndex: { not: null } }, orderBy: { createdAt: "desc" } });
+  const video = formatSpec(item).kind === "video";
+  const assets = await db.mediaAsset.findMany({ where: { contentItemId: itemId, source: "GENERATED", kind: video ? "VIDEO" : "IMAGE", shotIndex: { not: null } }, orderBy: { createdAt: "desc" } });
   const picks: string[] = [];
-  for (let i = 0; i < shots.length; i++) {
-    const forShot = assets.filter((a) => a.shotIndex === i);
-    if (forShot.some((a) => a.status === "APPROVED")) continue;
-    const latest = forShot.find((a) => a.status === "PENDING_REVIEW");
-    if (!latest) throw new DomainError(`Shot ${i + 1} has no image to approve; regenerate it`);
-    picks.push(latest.id);
+  let sceneClips: string[] = [];
+  if (video) {
+    // What gets published is the assembled video, so each scene's approved clip is the one in it.
+    const final = await finalVideo(itemId);
+    if (!final) throw new DomainError("There is no assembled video yet");
+    const used = ((final.paramsSnapshot as { scenes?: { clip: string }[] } | null)?.scenes ?? []).map((x) => x.clip);
+    for (let i = 0; i < shots.length; i++) {
+      const approved = assets.find((a) => a.shotIndex === i && a.status === "APPROVED");
+      if (approved && approved.id !== used[i]) throw new DomainError(`The approved clip of scene ${i + 1} is not in the assembled video; regenerate the scene to assemble again`);
+      if (!approved && used[i]) {
+        if (assets.find((a) => a.id === used[i])?.status === "REJECTED") throw new DomainError(`The clip of scene ${i + 1} in the assembled video was rejected; regenerate the scene`);
+        picks.push(used[i]!);
+      }
+      if (!approved && !used[i]) throw new DomainError(`Scene ${i + 1} has no clip to approve`);
+    }
+    if (final.status === "PENDING_REVIEW") picks.push(final.id);
+    sceneClips = used;
+  } else {
+    for (let i = 0; i < shots.length; i++) {
+      const forShot = assets.filter((a) => a.shotIndex === i);
+      if (forShot.some((a) => a.status === "APPROVED")) continue;
+      const latest = forShot.find((a) => a.status === "PENDING_REVIEW");
+      if (!latest) throw new DomainError(`Shot ${i + 1} has no image to approve; regenerate it`);
+      picks.push(latest.id);
+    }
   }
   await db.$transaction(async (tx) => {
     for (const id of picks) {
       await tx.mediaAsset.update({ where: { id }, data: { status: "APPROVED" } });
       await recordAudit(by.actor, { action: "media.approved", entityType: "media_asset", entityId: id, metadata: { contentItemId: itemId, via: "content_approval" } }, tx);
     }
+    for (const [position, clip] of sceneClips.entries()) await tx.videoScene.updateMany({ where: { contentItemId: itemId, position }, data: { approvedAssetId: clip } });
     if (item.status === "QC_REVIEW") assertTransition("content", "QC_REVIEW", "READY");
     assertTransition("content", "READY", "APPROVED");
     const { count } = await tx.contentItem.updateMany({ where: { id: itemId, status: item.status }, data: { status: "APPROVED" } });

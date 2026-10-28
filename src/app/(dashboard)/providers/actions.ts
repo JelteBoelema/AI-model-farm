@@ -31,6 +31,7 @@ export const updateProviderConfigAction = defineAction(
       effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
       imageSize: z.enum(["1024x1024", "1024x1536", "1536x1024"]).optional(),
       imageQuality: z.enum(["low", "medium", "high"]).optional(),
+      voiceId: z.string().trim().regex(/^[A-Za-z0-9]{8,64}$/, "Voice ids are 8–64 letters and digits").optional(),
       maxRequestsPerMinute: z.number().int().min(1).max(10_000),
       timeoutMs: z.number().int().min(5_000).max(600_000),
     }),

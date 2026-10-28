@@ -22,7 +22,7 @@ const STATUS_TABS: { label: string; value: MediaStatus | null }[] = [
   { label: "Approved", value: "APPROVED" },
   { label: "Rejected", value: "REJECTED" },
 ];
-const SOURCES = { generated: "GENERATED", uploaded: "UPLOADED" } as const;
+const SOURCES = { generated: "GENERATED", assembled: "DERIVED", uploaded: "UPLOADED" } as const;
 
 export default async function MediaPage({ searchParams }: Props) {
   const raw = await searchParams;
@@ -32,7 +32,7 @@ export default async function MediaPage({ searchParams }: Props) {
   const status = STATUS_TABS.find((t) => t.value === f.status)?.value ?? null;
   const source = typeof raw.source === "string" && raw.source in SOURCES ? SOURCES[raw.source as keyof typeof SOURCES] : null;
   const where: Prisma.MediaAssetWhereInput = {
-    kind: "IMAGE",
+    kind: { in: ["IMAGE", "VIDEO"] },
     ...(f.creator ? { creatorId: f.creator } : {}),
     ...(f.campaign ? { contentItem: { campaignId: f.campaign } } : {}),
     ...(since ? { createdAt: { gte: since } } : {}),
@@ -48,13 +48,18 @@ export default async function MediaPage({ searchParams }: Props) {
   const tiles: MediaTile[] = await Promise.all(
     assets.map(async (a) => ({
       id: a.id,
+      kind: a.kind === "VIDEO" ? ("video" as const) : ("image" as const),
       url: await storage().previewUrl(a.storageKey),
-      title: a.contentItem ? `${a.contentItem.title}${a.shotIndex !== null ? ` · shot ${a.shotIndex + 1}` : ""}` : a.source === "UPLOADED" ? "Reference upload" : "Prompt test output",
+      title: a.contentItem
+        ? `${a.contentItem.title}${a.shotIndex !== null ? ` · ${a.kind === "VIDEO" ? "scene" : "shot"} ${a.shotIndex + 1}` : a.kind === "VIDEO" ? " · final video" : ""}`
+        : a.source === "UPLOADED"
+          ? "Reference upload"
+          : "Prompt test output",
       subtitle: `${a.creator?.name ?? "Shared"} · ${a.providerKey ?? humanize(a.source)} · ${formatDateTime(a.createdAt)}`,
       status: a.status,
       isMock: a.isMock,
       // Reference uploads are reviewed in Character Studio; content takes only while the item is in review.
-      reviewable: a.source === "GENERATED" && (!a.contentItem || a.contentItem.status === "QC_REVIEW" || a.contentItem.status === "READY") && a.status !== "ARCHIVED",
+      reviewable: a.source !== "UPLOADED" && (!a.contentItem || a.contentItem.status === "QC_REVIEW" || a.contentItem.status === "READY") && a.status !== "ARCHIVED",
       qualityScore: a.qualityScore,
       href: a.contentItem ? `/content/${a.contentItem.id}` : null,
     })),
@@ -76,7 +81,7 @@ export default async function MediaPage({ searchParams }: Props) {
           </Link>
         ))}
         <span className="mx-2 self-center text-muted-foreground">·</span>
-        {(["generated", "uploaded"] as const).map((s) => (
+        {(["generated", "assembled", "uploaded"] as const).map((s) => (
           <Link key={s} href={tabHref(source === SOURCES[s] ? null : s, "source")} className={cn("rounded-md px-3 py-1.5", source === SOURCES[s] ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent/60")}>
             {humanize(s)}
           </Link>
@@ -85,7 +90,7 @@ export default async function MediaPage({ searchParams }: Props) {
       <Card>
         <CardContent className="pt-5">
           {tiles.length === 0 ? (
-            <EmptyState icon={Images} title="No images in this view" description="Generated images and reference uploads appear here." />
+            <EmptyState icon={Images} title="No media in this view" description="Generated images and videos, assembled videos and reference uploads appear here." />
           ) : (
             <MediaGrid tiles={tiles} canReview={can(user.role, "content:approve")} />
           )}

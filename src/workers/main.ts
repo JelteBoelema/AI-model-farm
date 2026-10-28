@@ -20,6 +20,8 @@ const PROCESSORS: Partial<Record<QueueName, ProcessorMap>> = {
   maintenance: maintenanceProcessors,
   "generation-text": { ...promptTestProcessors, ...contentProcessors },
   "generation-image": { ...promptTestProcessors, ...contentProcessors },
+  "generation-video": contentProcessors,
+  "media-processing": contentProcessors,
 };
 
 async function main() {

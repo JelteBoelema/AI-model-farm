@@ -66,10 +66,11 @@ export interface AttemptUsage {
 }
 
 export interface GenerationOutput {
-  kind: "text" | "image";
+  kind: "text" | "image" | "video" | "audio";
   text?: string;
   bytes?: Buffer;
   mimeType?: string;
+  durationMs?: number;
 }
 
 export interface GenerationResult {
@@ -95,9 +96,15 @@ export interface ProviderAdapter {
   /** Throws ProviderError("invalid_input") before any money is spent. */
   validate(request: GenerationRequest): void;
   estimate(request: GenerationRequest): CostEstimate;
-  /**
-   * Runs the generation. Both current real providers answer synchronously; asynchronous providers
-   * (video, phase 6) will add submit/poll methods to this contract.
-   */
+  /** Runs a synchronous generation (text, images, speech, mock video). */
   generate(request: GenerationRequest, signal: AbortSignal): Promise<GenerationResult>;
+  /**
+   * Long-running providers (video) implement submit + poll instead: submit returns the provider's
+   * job id, which is stored before anything else so a crash never loses a paid job; poll is called
+   * until the result is ready. Adapters with submit are never called through generate.
+   */
+  submit?(request: GenerationRequest, signal: AbortSignal): Promise<{ providerJobId: string }>;
+  poll?(providerJobId: string, request: GenerationRequest, signal: AbortSignal): Promise<PollResult>;
 }
+
+export type PollResult = { done: false } | { done: true; result: GenerationResult };

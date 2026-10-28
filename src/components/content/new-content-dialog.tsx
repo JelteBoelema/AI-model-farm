@@ -10,7 +10,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { PHOTO_FORMATS } from "@/lib/content-pipeline";
+import { FORMAT_SPECS } from "@/lib/content-pipeline";
 import { createBatchAction, createContentAction } from "@/app/(dashboard)/content/actions";
 
 export interface CreatorOption {
@@ -20,9 +20,8 @@ export interface CreatorOption {
 }
 
 const FORMATS = [
-  ...Object.entries(PHOTO_FORMATS).map(([value, spec]) => ({ value, label: spec!.label, producible: true })),
-  { value: "SHORT_VIDEO", label: "Short video (production in phase 6)", producible: false },
-  { value: "TALKING_HEAD", label: "Talking head (production in phase 6)", producible: false },
+  ...Object.entries(FORMAT_SPECS).map(([value, spec]) => ({ value, label: spec!.label, producible: true })),
+  { value: "TALKING_HEAD", label: "Talking head (needs a lip-sync provider)", producible: false },
 ];
 
 export function NewContentDialog({ creators, mode }: { creators: CreatorOption[]; mode: "single" | "batch" }) {
@@ -33,7 +32,7 @@ export function NewContentDialog({ creators, mode }: { creators: CreatorOption[]
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const creator = creators.find((c) => c.id === creatorId);
-  const spec = PHOTO_FORMATS[format as keyof typeof PHOTO_FORMATS];
+  const spec = FORMAT_SPECS[format as keyof typeof FORMAT_SPECS];
   const producible = FORMATS.find((f) => f.value === format)?.producible ?? false;
   const batch = mode === "batch";
 
@@ -108,8 +107,8 @@ export function NewContentDialog({ creators, mode }: { creators: CreatorOption[]
               </NativeSelect>
             </Field>
             {spec && spec.maxShots > 1 ? (
-              <Field label="Slides" htmlFor="nc-shots">
-                <Input id="nc-shots" name="shots" type="number" min={spec.minShots} max={spec.maxShots} defaultValue={spec.defaultShots} required />
+              <Field label={spec.kind === "video" ? "Scenes" : "Slides"} htmlFor="nc-shots">
+                <Input id="nc-shots" key={format} name="shots" type="number" min={spec.minShots} max={spec.maxShots} defaultValue={spec.defaultShots} required />
               </Field>
             ) : null}
           </div>

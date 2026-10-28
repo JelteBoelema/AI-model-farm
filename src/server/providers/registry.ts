@@ -13,7 +13,9 @@ import { DomainError } from "../errors";
 import { redis } from "../redis";
 import { isSecretConfigured, requireSecret } from "../secrets";
 import { AnthropicAdapter } from "./adapters/anthropic";
-import { MockImageAdapter, MockTextAdapter } from "./adapters/mock";
+import { ElevenLabsAdapter } from "./adapters/elevenlabs";
+import { VeoAdapter } from "./adapters/google-veo";
+import { MockImageAdapter, MockTextAdapter, MockVideoAdapter } from "./adapters/mock";
 import { IMAGE_QUALITIES, IMAGE_SIZES, OpenAiImagesAdapter } from "./adapters/openai-images";
 import { PROVIDER_CATALOG, type CatalogEntry } from "./catalog";
 import { hasPrice, parsePricing, type PriceUnit } from "./pricing";
@@ -25,6 +27,8 @@ export const providerConfigSchema = z.object({
   effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
   imageSize: z.enum(IMAGE_SIZES).optional(),
   imageQuality: z.enum(IMAGE_QUALITIES).optional(),
+  /** Default synthetic voice (speech providers); a creator may override it in prompt settings. */
+  voiceId: z.string().trim().regex(/^[A-Za-z0-9]{8,64}$/, "Voice ids are 8–64 letters and digits").optional(),
   maxRequestsPerMinute: z.number().int().min(1).max(10_000).default(30),
   timeoutMs: z.number().int().min(5_000).max(600_000).default(120_000),
   verifiedAt: z.string().datetime().optional(),
@@ -42,15 +46,20 @@ export function parseConfig(stored: unknown): ProviderConfig {
 export const REQUIRED_PRICE_UNITS: Partial<Record<ProviderCapability, PriceUnit[]>> = {
   TEXT: ["input_mtok", "output_mtok"],
   IMAGE: ["per_image"],
+  VIDEO: ["video_second"],
+  SPEECH: ["speech_kchar"],
 };
 
-const MOCK_FOR: Partial<Record<ProviderCapability, string>> = { TEXT: "mock-text", MODERATION: "mock-text", IMAGE: "mock-image" };
+const MOCK_FOR: Partial<Record<ProviderCapability, string>> = { TEXT: "mock-text", MODERATION: "mock-text", IMAGE: "mock-image", VIDEO: "mock-video", SPEECH: "mock-video" };
 
 type AdapterFactory = (row: AiProvider, config: ProviderConfig) => Promise<ProviderAdapter>;
 
 const FACTORIES: Record<string, AdapterFactory> = {
   "mock-text": async () => new MockTextAdapter(),
   "mock-image": async () => new MockImageAdapter(),
+  "mock-video": async () => new MockVideoAdapter(),
+  "google-veo": async (row, config) => new VeoAdapter({ apiKey: await requireSecret(row.credentialRef!), timeoutMs: config.timeoutMs }),
+  elevenlabs: async (row, config) => new ElevenLabsAdapter({ apiKey: await requireSecret(row.credentialRef!), timeoutMs: config.timeoutMs }),
   anthropic: async (row, config) => new AnthropicAdapter({ apiKey: await requireSecret(row.credentialRef!), timeoutMs: config.timeoutMs, effort: config.effort }),
   "openai-images": async (row, config) => new OpenAiImagesAdapter({ apiKey: await requireSecret(row.credentialRef!), timeoutMs: config.timeoutMs }),
 };
@@ -89,6 +98,7 @@ export async function evaluateReadiness(row: AiProvider): Promise<Readiness> {
   if (!implemented) return { ready: false, checks };
   checks.push({ label: "Enabled", ok: row.status !== "DISABLED", detail: row.status === "DISABLED" ? "Disabled by an admin" : undefined });
   checks.push({ label: "Model", ok: !!config.model, detail: config.model ?? "No model configured" });
+  if (!row.isMock && row.capabilities.includes("SPEECH")) checks.push({ label: "Voice", ok: !!config.voiceId, detail: config.voiceId ?? "Choose a designed (synthetic) voice id" });
   if (!row.isMock) {
     const credential = await isSecretConfigured(row.credentialRef);
     checks.push({ label: "Credential", ok: credential, detail: credential ? row.credentialRef! : `${row.credentialRef} is not set` });
@@ -196,7 +206,7 @@ export async function verifyProvider(actor: Actor, providerId: string): Promise<
 }
 
 /** Changing the model clears the previous verification: a new model needs its own connection test. */
-export async function updateProviderConfig(actor: Actor, providerId: string, patch: Partial<Pick<ProviderConfig, "model" | "bulkModel" | "effort" | "imageSize" | "imageQuality" | "maxRequestsPerMinute" | "timeoutMs">>) {
+export async function updateProviderConfig(actor: Actor, providerId: string, patch: Partial<Pick<ProviderConfig, "model" | "bulkModel" | "effort" | "imageSize" | "imageQuality" | "voiceId" | "maxRequestsPerMinute" | "timeoutMs">>) {
   const row = await db.aiProvider.findUnique({ where: { id: providerId } });
   if (!row) throw new DomainError("Provider not found");
   const current = parseConfig(row.config);

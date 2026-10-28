@@ -16,14 +16,27 @@ export const STARTER_PROMPTS: { key: string; name: string; kind: PromptKind; bod
     ],
   },
   {
+    key: "video.scene.default",
+    name: "Video scene",
+    kind: "VIDEO",
+    body: "{{creator_identity_prompt}}. {{scene}}.{{#if action}} Action: {{action}}.{{/if}} Vertical 9:16 video, {{camera}}, natural motion, no text or logos in frame.",
+    variables: [
+      { name: "scene", type: "longtext", label: "Scene" },
+      { name: "action", type: "text", label: "Action", required: false },
+      { name: "camera", type: "text", label: "Camera", default: "handheld smartphone look, shallow depth of field" },
+    ],
+  },
+  {
     key: "script.short_video.default",
     name: "Short video script",
     kind: "SCRIPT",
-    body: "Write a {{duration_seconds}}-second vertical video script for {{creator_name}} (tone: {{creator_tone}}) about {{topic}}. Return scenes with action, dialogue and on-screen text.{{#if hook}} Open with a strong hook in the first two seconds.{{/if}}",
+    body: "Write a storyboard for a vertical (9:16) video of about {{duration_seconds}} seconds for {{creator_name}} (tone: {{creator_tone}}; language: {{creator_language}}) about {{topic}}, in exactly {{scenes}} scenes.{{#if brief}}\n\nBrief:\n{{brief}}{{/if}}\n\nPer scene: the visual for a video model (setting, framing, light, motion; the character itself is described separately), the action, the clip length, one spoken voice-over line that fits the clip (about 14 characters per second; may be empty) and short on-screen text. Keep the character, styling and setting consistent.{{#if hook}} Open with a strong hook in the first two seconds.{{/if}}",
     variables: [
       { name: "duration_seconds", type: "number", label: "Duration (s)", min: 5, max: 90, default: "30" },
       { name: "topic", type: "text", label: "Topic" },
       { name: "hook", type: "boolean", label: "Start with a hook", default: "true" },
+      { name: "scenes", type: "number", label: "Scenes", min: 1, max: 10, default: "3" },
+      { name: "brief", type: "longtext", label: "Brief", required: false },
     ],
   },
   {

@@ -45,6 +45,8 @@ const ANTHROPIC_PRESET: PricingPreset = {
 const UNITS_FOR: Record<string, (keyof typeof PRICE_UNITS)[]> = {
   anthropic: ["input_mtok", "output_mtok", "cache_write_mtok", "cache_read_mtok", "long_input_mtok", "long_output_mtok"],
   "openai-images": ["per_image", "text_input_mtok", "image_input_mtok", "image_output_mtok"],
+  "google-veo": ["video_second"],
+  elevenlabs: ["speech_kchar"],
 };
 
 export default async function ProvidersPage() {
@@ -76,7 +78,7 @@ export default async function ProvidersPage() {
 
       <div className="grid gap-4">
         {items.map(({ row, entry, readiness, config, pricing, pause }) => {
-          const capability = row.capabilities.includes("TEXT") ? "TEXT" : row.capabilities.includes("IMAGE") ? "IMAGE" : "OTHER";
+          const capability = row.capabilities.includes("TEXT") ? "TEXT" : row.capabilities.includes("IMAGE") ? "IMAGE" : row.capabilities.includes("SPEECH") ? "SPEECH" : "OTHER";
           const priceRows: PriceRow[] = Object.entries(pricing?.models ?? {}).flatMap(([model, units]) => Object.entries(units).map(([unit, price]) => ({ model, unit, price })));
           const unitLabels = Object.fromEntries((UNITS_FOR[row.key] ?? (Object.keys(PRICE_UNITS) as (keyof typeof PRICE_UNITS)[])).map((u) => [u, PRICE_UNITS[u]]));
           return (
