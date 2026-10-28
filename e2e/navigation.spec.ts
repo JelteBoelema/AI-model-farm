@@ -42,8 +42,10 @@ test("sidebar navigation keeps global filters", async ({ page }) => {
 test("demo data is labelled as demo, never as measured", async ({ page }) => {
   await login(page, OWNER);
   await page.goto("/analytics");
-  await expect(page.getByRole("heading", { name: /Demo results/ })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Measured results/ })).toHaveCount(0);
+  // With only demo data, the page opens on the demo tab and says so.
+  await expect(page.getByRole("navigation", { name: "Data origin" }).getByRole("link", { name: /Demo/ })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("note").getByText("Seeded demonstration data")).toBeVisible();
+  await expect(page.getByLabel("Measured totals")).toHaveCount(0);
   await page.goto("/creators");
   await expect(page.getByText("Demo", { exact: true }).first()).toBeVisible();
 });

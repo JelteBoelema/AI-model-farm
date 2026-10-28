@@ -228,6 +228,27 @@ Mockcalls kosten aantoonbaar € 0, reserveren niets en worden niet geboekt.
 - Hij gebruikt alleen operatoracties: `createContent`, `approveContent` en `schedulePublication`.
 - Elke run is een `autopilot.run`-auditregel met per creator wat er gebeurde en waarom iets werd overgeslagen.
 
+## Analytics (fase 9)
+
+**Verzameling.**
+- `analytics.dispatch` (elk uur, maintenance) zet per gekoppeld account één `analytics.collect`-job op de queue `analytics` (sleutel per uur).
+- `collectAccount` vraagt het platform (`postMetrics`, `accountMetrics` in het platformcontract) alleen om posts waarvan een meetmoment open staat (`dueCheckpoint`).
+- Snapshots worden met `skipDuplicates` op `collection_key` opgeslagen.
+- Gemiste meetmomenten worden overgeslagen, niet te laat geregistreerd, zodat vergelijkingen op leeftijd eerlijk blijven.
+
+**Leesmodel.** `analytics.ts` neemt per publicatie de laatste snapshot (cumulatieve tellers), voor één herkomst tegelijk. Kosten komen uit `cost_ledger` per contentitem; een item op twee accounts telt één keer.
+
+**Inzichten.**
+- `insights.ts` (elke 6 uur en na *Collect statistics now*) vergelijkt per dimensie de beste groep met de rest (Welch-t, normale benadering), op de engagement bij dezelfde leeftijd.
+- Patronen en voorstellen worden per vingerafdruk bijgewerkt: maximaal één actief per creator, herkomst en dimensie (partiële unieke index).
+- Een afgewezen voorstel komt 30 dagen niet terug.
+- Een geaccepteerd experiment houdt zijn varianten en wordt `COMPLETED` met een melding zodra elke variant genoeg posts heeft.
+
+**Planning.**
+- `planning-hints.ts` is alleen-lezen en de enige brug naar de autopilot.
+- Hij controleert bij elke run opnieuw de *huidige* minimale steekproef, de herkomst (`MEASURED`) en de p-waarde.
+- De autopilot importeert de beslisfunctie voor experimenten niet (statisch getest).
+
 ## Schaalbaarheid
 
 Ontworpen voor 10–50 creators (orde 50–300 contentitems/dag). Knelpunten en de route daarna:

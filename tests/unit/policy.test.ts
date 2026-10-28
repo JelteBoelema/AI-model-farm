@@ -25,6 +25,7 @@ const values = (v: Partial<Parameters<typeof loosenedFields>[1]> = {}) => ({
   maxRetries: 3,
   maxNewItemsPerDay: 1,
   autoApproveMinScore: null,
+  analyticsMinSample: null,
   requireHumanApproval: false,
   ...v,
 });
@@ -78,6 +79,14 @@ describe("which changes loosen a limit (and need the owner)", () => {
     expect(loosenedFields(values({ autoApproveMinScore: 90 }), values({ autoApproveMinScore: 95 }))).toEqual([]);
     expect(loosenedFields(values({ autoApproveMinScore: 90 }), values({ autoApproveMinScore: null }))).toEqual([]);
     expect(loosenedFields(values({ requireHumanApproval: true }), values())).toEqual(["requireHumanApproval"]);
+  });
+
+  it("treats the analytics minimum sample as a bar: lowering it or switching it on loosens", () => {
+    expect(loosenedFields(values(), values({ analyticsMinSample: 30 }))).toEqual(["analyticsMinSample"]);
+    expect(loosenedFields(values({ analyticsMinSample: 30 }), values({ analyticsMinSample: 10 }))).toEqual(["analyticsMinSample"]);
+    expect(loosenedFields(values({ analyticsMinSample: 30 }), values({ analyticsMinSample: 50 }))).toEqual([]);
+    expect(mergePolicies([row("CREATOR", { analyticsMinSample: 5 })]).analyticsMinSample).toBeNull();
+    expect(mergePolicies([row("GLOBAL", { analyticsMinSample: 30 }), row("CREATOR", { analyticsMinSample: 10 })]).analyticsMinSample).toBe(30);
   });
 
   it("for a scoped bar, only lowering or removing it loosens", () => {

@@ -9,7 +9,7 @@
 //   CONTROLLED_AUTONOMY  also approves its own items that passed QC with a high enough score (only
 //                        when the policies allow it) and schedules them on connected accounts
 
-import type { Creator, UserRole } from "@prisma/client";
+import type { ContentFormat, Creator, UserRole } from "@prisma/client";
 import { isProducible } from "@/lib/content-pipeline";
 import { contentPillarSchema } from "@/lib/schemas/creator";
 import { dayKey, zonedToUtc } from "@/lib/time";
@@ -19,6 +19,7 @@ import { db } from "../db";
 import { DomainError } from "../errors";
 import { approveContent, createContent } from "./content";
 import { effectivePolicy } from "./policy";
+import { planningHint, type PlanningHint } from "./planning-hints";
 import { nextFreeSlots, schedulePublication } from "./publishing";
 import type { ActingUser } from "./users";
 
@@ -46,6 +47,8 @@ export interface CreatorRun {
   approved: number;
   scheduled: number;
   skipped: string[];
+  /** Analytics that shaped the plan (empty: plain rotation). */
+  planning: string[];
 }
 
 export interface AutopilotRun {
@@ -59,19 +62,24 @@ function startOfDay(now: Date, tz: string) {
   return zonedToUtc(y, m, d, 0, 0, tz);
 }
 
-/** Rotates through the creator's content pillars so the plan stays on brand. */
-function nextIdea(creator: Creator, n: number) {
+function pillarsOf(creator: Creator) {
   const pillars = contentPillarSchema.array().safeParse(creator.contentPillars);
-  const list = pillars.success && pillars.data.length ? pillars.data : [{ name: creator.niche, description: "" }];
-  const pillar = list[n % list.length]!;
+  return pillars.success && pillars.data.length ? pillars.data : [{ name: creator.niche, description: "" }];
+}
+
+/** Rotates through the creator's content pillars so the plan stays on brand; analytics may pick one. */
+function nextIdea(creator: Creator, n: number, hint: PlanningHint | null) {
+  const list = pillarsOf(creator);
+  const pillar = (hint?.pillar && list.find((p) => p.name === hint.pillar)) || list[n % list.length]!;
   return {
     title: `${pillar.name}: autopilot idea`,
-    idea: `Planned by the autopilot for the content pillar "${pillar.name}"${pillar.description ? ` (${pillar.description})` : ""}. Pick a fresh angle that fits ${creator.name}'s niche (${creator.niche}) and audience (${creator.targetAudience}).`,
+    pillar: pillar.name,
+    idea: `Planned by the autopilot for the content pillar "${pillar.name}"${pillar.description ? ` (${pillar.description})` : ""}. Pick a fresh angle that fits ${creator.name}'s niche (${creator.niche}) and audience (${creator.targetAudience}).${hint ? ` Chosen from analytics: ${hint.reason}.` : ""}`,
   };
 }
 
 async function planCreator(by: ActingUser, creator: Creator, now: Date): Promise<CreatorRun> {
-  const run: CreatorRun = { creatorId: creator.id, name: creator.name, mode: creator.autonomyMode, created: 0, approved: 0, scheduled: 0, skipped: [] };
+  const run: CreatorRun = { creatorId: creator.id, name: creator.name, mode: creator.autonomyMode, created: 0, approved: 0, scheduled: 0, skipped: [], planning: [] };
   const pause = await findActivePause({ chain: "generation", creatorId: creator.id });
   const policy = await effectivePolicy({ creatorId: creator.id });
 
@@ -81,12 +89,18 @@ async function planCreator(by: ActingUser, creator: Creator, now: Date): Promise
     const quota = policy.maxNewItemsPerDay ?? DEFAULT_NEW_ITEMS_PER_DAY;
     if (quota === 0) run.skipped.push("new ideas: no daily quota set (Settings → Autonomy)");
     const today = await db.contentItem.count({ where: { creatorId: creator.id, createdById: by.id, createdAt: { gte: startOfDay(now, creator.timezone) } } });
-    const format = creator.contentFormats.find(isProducible);
-    if (!format) run.skipped.push("no producible content format");
-    for (let n = today; format && n < quota; n++) {
+    const formats = creator.contentFormats.filter(isProducible);
+    if (formats.length === 0) run.skipped.push("no producible content format");
+    // Rotation continues across days: n counts every item the autopilot planned for this creator.
+    const planned = await db.contentItem.count({ where: { creatorId: creator.id, createdById: by.id } });
+    for (let i = 0; formats.length > 0 && today + i < quota; i++) {
+      const n = planned + i;
+      const hint = await planningHint(creator.id, n, { minSample: policy.analyticsMinSample, pillars: pillarsOf(creator).map((p) => p.name), formats });
+      const format = (hint?.format as ContentFormat | undefined) ?? formats[0]!;
       try {
-        await createContent(by, { creatorId: creator.id, format, ...nextIdea(creator, n), produce: true });
+        await createContent(by, { creatorId: creator.id, format, ...nextIdea(creator, n, hint), produce: true });
         run.created++;
+        if (hint) run.planning.push(hint.reason);
       } catch (err) {
         if (!(err instanceof DomainError)) throw err;
         run.skipped.push(err.message);
@@ -175,7 +189,7 @@ export async function runAutopilot(opts: { creatorIds?: string[]; now?: Date } =
       created: result.creators.reduce((s, c) => s + c.created, 0),
       approved: result.creators.reduce((s, c) => s + c.approved, 0),
       scheduled: result.creators.reduce((s, c) => s + c.scheduled, 0),
-      creators: result.creators.map((c) => ({ id: c.creatorId, name: c.name, mode: c.mode, created: c.created, approved: c.approved, scheduled: c.scheduled, skipped: c.skipped.slice(0, 5) })),
+      creators: result.creators.map((c) => ({ id: c.creatorId, name: c.name, mode: c.mode, created: c.created, approved: c.approved, scheduled: c.scheduled, skipped: c.skipped.slice(0, 5), planning: c.planning.slice(0, 5) })),
     },
   });
   return result;

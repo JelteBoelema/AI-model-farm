@@ -4,7 +4,7 @@ Acties voor de eigenaar die bewust zijn uitgesteld tot de laatste fase, als het 
 
 ## 1. Pull requests reviewen en mergen
 
-Fase 3–8 bevatten databasemigraties (`prompt_studio`, `provider_execution`, `content_factory`, `video_engine`, `publishing`, `autonomy`, `workflow_clock`); die worden bij deployment automatisch toegepast door de `migrate`-taak.
+Fase 3–9 bevatten databasemigraties (`prompt_studio`, `provider_execution`, `content_factory`, `video_engine`, `publishing`, `autonomy`, `workflow_clock`, `analytics`); die worden bij deployment automatisch toegepast door de `migrate`-taak.
 
 De fasen worden gestapeld opgeleverd: elke fase-branch bouwt voort op de vorige. Merge ze **in volgorde** en klik na elke merge op *Delete branch*: GitHub zet de basis van de volgende PR dan automatisch op `main` (anders handmatig: *Edit → base: main*).
 
@@ -17,6 +17,7 @@ De fasen worden gestapeld opgeleverd: elke fase-branch bouwt voort op de vorige.
 | 6 — Video Engine | [#5](https://github.com/JelteBoelema/AI-model-farm/pull/5) | `phase-5-content-factory` | wacht op review (na #4) |
 | 7 — Publishing | [#6](https://github.com/JelteBoelema/AI-model-farm/pull/6) | `phase-6-video-engine` | wacht op review (na #5) |
 | 8 — Autonomy | [#7](https://github.com/JelteBoelema/AI-model-farm/pull/7) | `phase-7-publishing` | wacht op review (na #6) |
+| 9 — Analytics | [#8](https://github.com/JelteBoelema/AI-model-farm/pull/8) | `phase-8-autonomy` | wacht op review (na #7) |
 
 Per PR: beschrijving lezen, de CI-checks moeten groen zijn, eventueel lokaal draaien (`README.md` → *Snel starten*), dan *Merge*.
 
@@ -61,6 +62,14 @@ Zonder deze stappen draait alles op de gelabelde mockproviders; betaalde generat
 2. Per creator de **autonomiemodus** kiezen. Nieuwe creators staan standaard op *Controlled autonomy*. Wie eerst wil meekijken: *Assisted* (alleen productie tot review) of *Manual*.
 3. **Budgetten** met automatische pauze per creator of campagne waar dat nodig is, naast het farm-brede maandbudget.
 4. Verzoeken van admins verschijnen onder **Settings → Approvals**; alleen de owner beslist.
+
+## 5. Analytics (na fase 9)
+
+1. Bij de Meta-app-review (sectie 2) ook de permissie voor **inzichten/statistieken** aanvragen. Zonder die permissie verzamelt het platform geen statistieken voor dat account en krijg je één melding per dag.
+2. Onder **Settings → Autonomy** de **minimale steekproef** controleren:
+   - de seed zet 30 posts per vergeleken groep; bestaande installaties hebben geen waarde (leeg), en dan stuurt analytics de planning nooit;
+   - lager zetten is een versoepeling en vraagt de owner.
+3. De echte statistiekenadapter voor Instagram wordt samen met de publicatie-adapter geactiveerd en geverifieerd. Tot die tijd zijn alle statistieken mock- of demodata en staan ze zo gelabeld.
 
 ## Overige configuratie (staat al in de documentatie)
 

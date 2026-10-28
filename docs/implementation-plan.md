@@ -250,7 +250,49 @@ Elke fase eindigt met werkende functionaliteit, groene tests (unit, integratie, 
 
 **Inhoud** — periodieke snapshots per platform, dashboards per creator/campagne/contenttype, kosten per gepubliceerd item, patroonherkenning en experimentvoorstellen (gelabeld als voorspelling, met minimale steekproefgrootte).
 
-**Acceptatie** — gemeten data en voorspellingen zijn visueel en in de data gescheiden; geen automatische strategie-aanpassing onder de ingestelde minimale steekproef.
+**Opgeleverd**
+- **Periodieke snapshots**:
+  - elk uur één verzameljob per gekoppeld account (queue `analytics`);
+  - per gepubliceerde post één snapshot per meetmoment: 1 u, 3 u, 6 u, 12 u, 24 u, 48 u, 72 u, 7, 14 en 30 dagen na publicatie;
+  - per account één snapshot per dag (volgers);
+  - elke snapshot is uniek per meetmoment (`collection_key`), dus herhalen of opnieuw proberen dupliceert niets;
+  - elke snapshot draagt bron, leeftijd van de post en de ruwe respons;
+  - een verlopen token zet het account op *opnieuw koppelen*; een ontbrekende permissie geeft één melding per dag.
+- **Herkomst gescheiden**:
+  - `MEASURED` (echt platform), `MOCK` (mockplatform, verzonnen cijfers) en `DEMO` (seed);
+  - een database-trigger verbiedt `MEASURED` van een mock-account;
+  - dashboards tonen altijd één herkomst tegelijk, met label; cijfers worden nooit opgeteld over herkomsten heen.
+- **Dashboards** (Analytics) per creator, campagne, contenttype en platform, met de globale filters:
+  - posts, views, bereik, volgers en engagement (interacties per bereikte persoon);
+  - kosten per gepubliceerd item en per 1.000 views (uit het kostenjournaal, mock kost niets);
+  - topposts.
+- **Voorspellingen** (aparte tabel `insights`, visueel apart blok "Prediction — not measured"):
+  - **Patronen** per creator en farm-breed, voor format, contentpijler, weekdag en dagdeel. Posts worden vergeleken op dezelfde leeftijd (tot 72 u). Bij elk patroon staan steekproefgrootte, p-waarde (Welch) en of de minimale steekproef gehaald is.
+  - **Experimentvoorstellen** als een patroon nog niet vaststaat: twee varianten afwisselen, met het benodigde aantal posts per variant (80% power), nooit minder dan de minimale steekproef.
+  - Een admin of de owner accepteert of verwerpt een voorstel. Voorstellen op mock- of demodata kunnen alleen verworpen worden.
+- **Minimale steekproef** (`analytics_min_sample`): een harde limiet in het autonomiebeleid.
+  - Alleen mensen wijzigen haar; verlagen loopt via owner-goedkeuring.
+  - De seed zet 30; leeg betekent dat analytics nooit de planning stuurt.
+- **Strategie-aanpassing door de autopilot**:
+  - alleen met een *gemeten* patroon waarbij beide vergeleken groepen de minimale steekproef halen en p ≤ 0,05;
+  - dan krijgt elk tweede nieuw item de beste pijler of het beste format, de andere items blijven roteren;
+  - na een verhoging van de limiet stopt dit direct;
+  - een geaccepteerd experiment wisselt de varianten af;
+  - de reden staat in het item en in de auditlog.
+
+**Acceptatie** — aangetoond:
+- [x] Gemeten data en voorspellingen zijn gescheiden:
+  - in de data: aparte tabel `insights`, herkomst per snapshot, en een trigger die `MEASURED` van mock-accounts blokkeert;
+  - in de UI: tabbladen per herkomst en een apart gelabeld voorspellingsblok;
+  - aggregaties tellen herkomsten nooit samen. *(integratie + e2e)*
+- [x] Geen automatische strategie-aanpassing onder de minimale steekproef:
+  - onder de steekproef: alleen rotatie;
+  - erboven: elk tweede item volgt de leider;
+  - na een verhoging van de minimale steekproef: direct weer rotatie;
+  - mockdata stuurt nooit, ook niet met een grote steekproef;
+  - experimenten alleen na menselijke acceptatie, niet door agents. *(integratie)*
+- [x] Verzameling: één snapshot per meetmoment en idempotent, oplopende cumulatieve tellers, tokenverloop afgehandeld, één job per account per uur. *(integratie)*
+- [ ] Echte Instagram-statistieken — wacht op de Meta-app en de permissie voor inzichten (zie `docs/open-actions.md`).
 
 ## Fase 10 — Production Readiness
 

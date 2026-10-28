@@ -29,10 +29,19 @@ export interface EffectivePolicy {
   maxNewItemsPerDay: number | null;
   /** Higher is stricter; null means the autopilot never approves content itself. */
   autoApproveMinScore: number | null;
+  /** Measured posts per compared group before analytics may steer planning; null: never. */
+  analyticsMinSample: number | null;
   requireHumanApproval: boolean;
   /** Which scope set each binding limit (for explanations in the UI and in errors). */
-  source: Partial<Record<LimitField | "autoApproveMinScore" | "requireHumanApproval", "GLOBAL" | "CREATOR" | "CAMPAIGN">>;
+  source: Partial<Record<LimitField | BarField | "requireHumanApproval", "GLOBAL" | "CREATOR" | "CAMPAIGN">>;
 }
+
+/**
+ * "Bars": thresholds that unlock an autonomous behaviour. They exist only when the farm-wide policy
+ * sets them (null: never), and a scope can only raise them.
+ */
+export const BAR_FIELDS = ["autoApproveMinScore", "analyticsMinSample"] as const;
+export type BarField = (typeof BAR_FIELDS)[number];
 
 type Client = Prisma.TransactionClient | PrismaClient;
 
@@ -42,7 +51,7 @@ function stricter<T extends number | bigint>(a: T | null, b: T | null): T | null
   return b < a ? b : a;
 }
 
-export function mergePolicies(rows: Pick<AutonomyPolicy, "scope" | LimitField | "autoApproveMinScore" | "requireHumanApproval">[]): EffectivePolicy {
+export function mergePolicies(rows: (Pick<AutonomyPolicy, "scope" | LimitField | "autoApproveMinScore" | "requireHumanApproval"> & Partial<Pick<AutonomyPolicy, "analyticsMinSample">>)[]): EffectivePolicy {
   const eff: EffectivePolicy = {
     maxCostPerJobMicros: null,
     maxGenerationsPerItem: null,
@@ -52,13 +61,14 @@ export function mergePolicies(rows: Pick<AutonomyPolicy, "scope" | LimitField | 
     maxRetries: null,
     maxNewItemsPerDay: null,
     autoApproveMinScore: null,
+    analyticsMinSample: null,
     requireHumanApproval: false,
     source: {},
   };
   // GLOBAL first so that ties keep the global source.
   const ordered = [...rows].sort((a, b) => (a.scope === "GLOBAL" ? -1 : b.scope === "GLOBAL" ? 1 : 0));
-  // Auto-approval exists only when the farm-wide policy allows it; scopes can only raise the bar.
-  const globalAllows = ordered.some((r) => r.scope === "GLOBAL" && r.autoApproveMinScore !== null);
+  // Bars exist only when the farm-wide policy sets them; scopes can only raise them.
+  const globalSets = (f: BarField) => ordered.some((r) => r.scope === "GLOBAL" && (r[f] ?? null) !== null);
   for (const r of ordered) {
     const scope = r.scope as "GLOBAL" | "CREATOR" | "CAMPAIGN";
     for (const f of LIMIT_FIELDS) {
@@ -68,19 +78,23 @@ export function mergePolicies(rows: Pick<AutonomyPolicy, "scope" | LimitField | 
         eff.source[f] = scope;
       }
     }
-    if (r.autoApproveMinScore !== null && (eff.autoApproveMinScore === null || r.autoApproveMinScore > eff.autoApproveMinScore)) {
-      eff.autoApproveMinScore = r.autoApproveMinScore;
-      eff.source.autoApproveMinScore = scope;
+    for (const f of BAR_FIELDS) {
+      const v = r[f] ?? null;
+      if (v !== null && (eff[f] === null || v > eff[f]!)) {
+        eff[f] = v;
+        eff.source[f] = scope;
+      }
     }
     if (r.requireHumanApproval && !eff.requireHumanApproval) {
       eff.requireHumanApproval = true;
       eff.source.requireHumanApproval = scope;
     }
   }
-  if (!globalAllows) {
-    eff.autoApproveMinScore = null;
-    delete eff.source.autoApproveMinScore;
-  }
+  for (const f of BAR_FIELDS)
+    if (!globalSets(f)) {
+      eff[f] = null;
+      delete eff.source[f];
+    }
   return eff;
 }
 

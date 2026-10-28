@@ -110,10 +110,10 @@ describe("no limit can be changed through an agent path", () => {
     const source = readFileSync(path.join(process.cwd(), "src/server/services/autopilot.ts"), "utf8");
     // Type-only imports (ActingUser) carry no behaviour.
     const imports = [...source.matchAll(/^import (?!type )[^;]*from "([^"]+)"/gm)].map((m) => m[1]!);
-    for (const banned of ["policy-admin", "creators", "campaigns", "social", "users", "registry", "budget-watch", "cost-manager"]) {
+    for (const banned of ["policy-admin", "creators", "campaigns", "social", "users", "registry", "budget-watch", "cost-manager", "insights"]) {
       expect(imports.some((i) => i.endsWith(`/${banned}`)), banned).toBe(false);
     }
-    for (const fn of ["setControlSwitch", "changePolicy", "changeBudget", "decideApproval", "setAutonomyMode", "autonomyPolicy.", "budgetPolicy.", "controlSwitch."]) {
+    for (const fn of ["setControlSwitch", "changePolicy", "changeBudget", "decideApproval", "decideExperiment", "setAutonomyMode", "autonomyPolicy.", "budgetPolicy.", "controlSwitch."]) {
       expect(source.includes(fn), fn).toBe(false);
     }
   });

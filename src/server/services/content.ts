@@ -33,6 +33,7 @@ export const createContentSchema = z.object({
   ...target,
   title: z.string().trim().min(3, "Give the item a title").max(120),
   idea: z.string().trim().max(2000).default(""),
+  pillar: z.string().trim().max(60).nullable().default(null),
   produce: z.boolean().default(false),
 });
 
@@ -80,6 +81,7 @@ export async function createContent(by: ActingUser, raw: z.input<typeof createCo
         campaignId: input.campaignId,
         title: input.title,
         idea: input.idea,
+        pillar: input.pillar,
         format: input.format,
         script: initialScript(input.format, input.shots),
         maxGenerations: await maxGenerations(input.creatorId, input.campaignId),
