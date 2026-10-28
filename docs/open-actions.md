@@ -18,7 +18,7 @@ De fasen worden gestapeld opgeleverd: elke fase-branch bouwt voort op de vorige.
 | 7 — Publishing | [#6](https://github.com/JelteBoelema/AI-model-farm/pull/6) | `phase-6-video-engine` | wacht op review (na #5) |
 | 8 — Autonomy | [#7](https://github.com/JelteBoelema/AI-model-farm/pull/7) | `phase-7-publishing` | wacht op review (na #6) |
 | 9 — Analytics | [#8](https://github.com/JelteBoelema/AI-model-farm/pull/8) | `phase-8-autonomy` | wacht op review (na #7) |
-| 10 — Production Readiness | #9 | `phase-9-analytics` | wacht op review (na #8) |
+| 10 — Production Readiness | [#9](https://github.com/JelteBoelema/AI-model-farm/pull/9) | `phase-9-analytics` | wacht op review (na #8) |
 
 Per PR: beschrijving lezen, de CI-checks moeten groen zijn, eventueel lokaal draaien (`README.md` → *Snel starten*), dan *Merge*.
 
