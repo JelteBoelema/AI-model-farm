@@ -22,7 +22,7 @@ jobs:
       matrix:
         target: [web, worker, migrate]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Image names must be lowercase; the repository name is not.
       - name: Image name
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.target }}" >> "$GITHUB_ENV"
