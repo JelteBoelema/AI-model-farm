@@ -2,7 +2,7 @@
 
 Cloud-gehost platform om 10–50 virtuele AI-creators te beheren: identiteit, prompts, beeld- en videogeneratie, planning, publicatie via officiële API's, analytics en harde kostenbeheersing — vanuit één dashboard, met maximale autonomie binnen expliciet ingestelde grenzen.
 
-**Status: fase 1 (Foundation) en fase 2 (Creator Engine) opgeleverd.** Zie [`docs/implementation-plan.md`](docs/implementation-plan.md) voor wat er werkt en wat per fase volgt.
+**Status: fasen 1 (Foundation), 2 (Creator Engine) en 3 (Prompt Studio) opgeleverd.** Openstaande acties voor de eigenaar: [`docs/open-actions.md`](docs/open-actions.md). Zie [`docs/implementation-plan.md`](docs/implementation-plan.md) voor wat er werkt en wat per fase volgt.
 
 ## Wat er nu werkt
 
@@ -11,6 +11,7 @@ Cloud-gehost platform om 10–50 virtuele AI-creators te beheren: identiteit, pr
 - Overview, Workflow Monitor (live queues en workers), AI Providers-register, Costs & Budgets, auditlog.
 - Creators aanmaken via een briefingwizard, bewerken, dupliceren, activeren, pauzeren, hervatten en archiveren; budget en autonomie per creator.
 - Character Studio: geversioneerde visuele identiteit, referentiebeelden met rechtenregistratie, goedkeuring met likeness-attestatie.
+- Prompt Studio: geversioneerde templates met gevalideerde variabelen, strikte templating, testruns met vergelijking, versiediff en campagne-pins.
 - Kill switches: pauzeer alle generatie, alle publicatie, of één creator/campagne/provider.
 - Volledig datamodel met databasegaranties: append-only kostenjournaal en auditlog, geen dubbele publicaties.
 - Queue-infrastructuur met retries, jitter-backoff, timeouts, dead-letter, heartbeats en veilig herstel van vastgelopen jobs.

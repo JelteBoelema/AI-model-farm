@@ -10,6 +10,7 @@ export const PERMISSIONS = {
   "audit:view": "VIEWER",
   "creators:edit": "OPERATOR",
   "prompts:edit": "OPERATOR",
+  "prompts:publish": "ADMIN", // publishing global or rule templates affects every creator
   "content:edit": "OPERATOR",
   "content:approve": "OPERATOR",
   "generation:run": "OPERATOR",

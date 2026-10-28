@@ -13,6 +13,7 @@
 | Manipulatie van financiële/audit-historie | `cost_ledger` en `audit_logs` append-only via databasetriggers (ook TRUNCATE geblokkeerd). |
 | Injectie | Prisma met parameters (ook `$queryRaw` tagged templates); Zod-validatie op alle invoer; storage-keys alleen door de server gegenereerd en gevalideerd tegen path traversal. |
 | Clickjacking / MIME-sniffing | `X-Frame-Options: DENY`, `nosniff`, HSTS, strikte referrer-policy, permissions-policy. |
+| Templates als aanvalsvector | Afgeschermde Handlebars-configuratie: alleen variabelen en `if`/`unless`, geen helpers, partials, paden, `@data` of prototype-toegang; uitvoer niet HTML-ge-escaped maar ook nooit als HTML gerenderd; limieten op template- en uitvoergrootte. |
 | Prompt-injectie via content | LLM-output wordt behandeld als data: nooit als instructie voor beleidswijzigingen; agents hebben geen schrijfpad naar limieten of rechten. |
 
 ## Authenticatie

@@ -59,11 +59,28 @@ Elke fase eindigt met werkende functionaliteit, groene tests (unit, integratie, 
 - [x] Een gepauzeerde of niet-actieve creator blokkeert zijn jobs. *(integratie)*
 - [x] Viewers zien alles alleen-lezen. *(e2e)*
 
-## Fase 3 — Prompt Studio
+## Fase 3 — Prompt Studio ✅ (opgeleverd)
 
-**Inhoud** — templates per soort en scope, variabelenschema (JSON Schema → Zod), strikte templating (ontbrekende variabele = fout), versies (draft → published → deprecated), testgeneraties met mock/echte provider, vergelijking naast elkaar, kosten per test.
+**Inhoud**
+- Templates per soort (idee, wizard, script, beeld, video, voice-over, caption, kwaliteits- en veiligheidsregels) en scope (globaal, creator, campagne), aanmaken, archiveren en herstellen.
+- Versies: concept → gepubliceerd → verouderd. Gepubliceerde versies zijn onveranderlijk, afgedwongen in de service én met een databasetrigger; verouderde versies kunnen niet terugkomen. Maximaal één concept per template (partiële unieke index).
+- Variabelen met een gevalideerde structuur: tekst, lange tekst, getal (min/max), keuzelijst, ja/nee; standaardwaarden; verplicht of optioneel. Contextvariabelen (`creator_*`, `campaign_*`) worden gevuld uit de gekozen creator (inclusief de identiteitsprompt van de goedgekeurde karakterversie) en campagne.
+- Strikte templating-engine (Handlebars in een afgeschermde configuratie): alleen `{{variabele}}` en `{{#if}}`/`{{#unless}}`/`{{else}}`. Helpers, partials, paden en datavariabelen worden geweigerd met regelnummer. Niet-gedeclareerde variabelen zijn een fout; ongebruikte een waarschuwing. Ontbrekende context is een fout, nooit een lege string.
+- Gepubliceerde globale veiligheidsregels worden automatisch aan generatieve prompts toegevoegd.
+- Testgeneraties: voorbeeldweergave zonder opslag, en vastgelegde testruns met de exacte gerenderde prompt, variabelen, output, provider, mock-vlag, duur en kosten. Tekstsoorten draaien tegen de gelabelde mock-tekstprovider tot fase 4; beeld-, video- en regelsoorten worden alleen gerenderd.
+- Vergelijken: twee testruns naast elkaar, en een regeldiff tussen een versie en de vorige.
+- Campagne-pins: een campagne pint een gepubliceerde versie. Bepalen welke versie geldt gaat in deze volgorde: pin → campagnetemplate → creatortemplate → globaal. Verouderen en archiveren worden geweigerd zolang een open campagne de versie pint.
 
-**Acceptatie** — een gepubliceerde versie is onveranderlijk; een template-wijziging verandert geen eerder gegenereerde of goedgekeurde content (test); elke testgeneratie bewaart versie-ID, gerenderde prompt en parameters.
+**Regels**
+- Bewerken, testen en publiceren van creator- en campagnetemplates: operator. Publiceren of verouderen van globale templates en regeltemplates: admin (raakt alle creators).
+- Een templatewijziging verandert nooit eerder gegenereerde content (die wijst naar een versie-ID en bewaart de gerenderde prompt) en nooit een gepinde campagne.
+
+**Acceptatie** — aangetoond:
+- [x] Gepubliceerde versies zijn onveranderlijk, ook bij directe databasewrites. *(integratie)*
+- [x] Een nieuwe templateversie verandert een gepinde campagne niet; resolutie respecteert scopevolgorde. *(integratie + e2e)*
+- [x] Elke testrun bewaart versie, gerenderde prompt, variabelen, output en kosten. *(integratie + e2e)*
+- [x] Onveilige templateconstructies worden geweigerd. *(unit)*
+- [x] Viewers zien de Prompt Studio alleen-lezen. *(e2e)*
 
 ## Fase 4 — AI Providers
 
