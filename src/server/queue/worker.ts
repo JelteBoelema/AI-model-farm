@@ -2,6 +2,7 @@ import os from "node:os";
 import { UnrecoverableError, Worker, type Job } from "bullmq";
 import { computeBackoffMs } from "@/lib/backoff";
 import { logger } from "../logger";
+import { withSpan } from "../telemetry";
 import { bullConnectionOptions, createRedis, redis } from "../redis";
 import { DEAD_LETTER_QUEUE, QUEUES, type QueueName } from "./definitions";
 import { getQueue, QUEUE_PREFIX } from "./queues";
@@ -43,7 +44,11 @@ export function createWorker(name: QueueName, processors: ProcessorMap): Worker 
     async (job) => {
       const handler = processors[job.name] as Processor | undefined;
       if (!handler) throw new UnrecoverableError(`No processor for job "${job.name}" on queue "${name}"`);
-      return runWithTimeout(def.timeoutMs, (signal) => handler(job, signal));
+      return withSpan(
+        `job ${name}/${job.name}`,
+        { "messaging.system": "bullmq", "messaging.destination.name": name, "job.name": job.name, "job.id": job.id ?? "", "job.attempt": job.attemptsMade + 1 },
+        () => runWithTimeout(def.timeoutMs, (signal) => handler(job, signal)),
+      );
     },
     {
       connection: createRedis(bullConnectionOptions),

@@ -5,6 +5,7 @@ import { defineAction } from "@/server/actions";
 import { recordAudit } from "@/server/audit";
 import { actingUserOf, actorOf } from "@/server/auth/session";
 import { setControlSwitch } from "@/server/controls";
+import { resetMfa } from "@/server/auth/mfa";
 import { runAutopilot } from "@/server/services/autopilot";
 import { budgetChangeSchema, changeBudget, changePolicy, decideApproval, policyChangeSchema } from "@/server/services/policy-admin";
 import { changeRole, createUser, createUserSchema, setUserDisabled } from "@/server/services/users";
@@ -78,4 +79,11 @@ export const runAutopilotAction = defineAction(
     return { paused: run.paused, created: run.creators.reduce((s, c) => s + c.created, 0), approved: run.creators.reduce((s, c) => s + c.approved, 0), scheduled: run.creators.reduce((s, c) => s + c.scheduled, 0) };
   },
   { revalidate: ["/settings/autonomy", "/content", "/calendar", "/"] },
+);
+
+export const resetMfaAction = defineAction(
+  "users:manage",
+  z.object({ userId: z.string().uuid(), reason: z.string().trim().max(500) }),
+  async (input, { user }) => resetMfa(actingUserOf(user), input.userId, input.reason),
+  { revalidate: ["/settings/users"] },
 );

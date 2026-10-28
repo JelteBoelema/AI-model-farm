@@ -1,0 +1,6 @@
+environment       = "production"
+domain_name       = "farm.example.com"
+certificate_arn   = "arn:aws:acm:eu-central-1:123456789012:certificate/REPLACE"
+alarm_email       = "ops@example.com"
+image_repository  = "ghcr.io/jelteboelema/ai-model-farm"
+github_repository = "JelteBoelema/AI-model-farm"

@@ -35,6 +35,19 @@ export const envSchema = z
     WORKER_HEALTH_PORT: z.coerce.number().int().positive().default(9464),
     LOGIN_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
     LOGIN_WINDOW_SECONDS: z.coerce.number().int().positive().default(900),
+    // Roles that must use two-factor authentication (comma-separated). Default: OWNER,ADMIN in
+    // production and staging, none elsewhere.
+    MFA_REQUIRED_ROLES: z.string().optional(),
+    // Optional single sign-on (OpenID Connect). Only existing, enabled users can sign in with it.
+    OIDC_ISSUER: z.string().url().optional(),
+    OIDC_CLIENT_ID: z.string().optional(),
+    OIDC_CLIENT_SECRET: z.string().optional(),
+    OIDC_DISPLAY_NAME: z.string().default("SSO"),
+    // Set only when the identity provider itself enforces a second factor for every user.
+    OIDC_IDP_ENFORCES_MFA: bool.default(false),
+    // Requests per minute: state-changing actions per user, API calls per client address.
+    RATE_LIMIT_ACTIONS_PER_MINUTE: z.coerce.number().int().positive().default(120),
+    RATE_LIMIT_API_PER_MINUTE: z.coerce.number().int().positive().default(300),
   })
   .superRefine((env, ctx) => {
     if (env.APP_ENV === "production") {
@@ -45,6 +58,9 @@ export const envSchema = z
       if (env.SECRETS_DRIVER !== "aws")
         ctx.addIssue({ code: "custom", path: ["SECRETS_DRIVER"], message: "production requires a secrets manager" });
     }
+    const oidc = [env.OIDC_ISSUER, env.OIDC_CLIENT_ID, env.OIDC_CLIENT_SECRET].filter(Boolean).length;
+    if (oidc > 0 && oidc < 3)
+      ctx.addIssue({ code: "custom", path: ["OIDC_ISSUER"], message: "OIDC_ISSUER, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET must be set together" });
     if (env.STORAGE_DRIVER === "s3" && (!env.S3_BUCKET || !env.S3_REGION))
       ctx.addIssue({ code: "custom", path: ["S3_BUCKET"], message: "S3_BUCKET and S3_REGION are required for s3 storage" });
   });
@@ -71,3 +87,11 @@ export function env(): Env {
 export function resetEnvCache(): void {
   cached = undefined;
 }
+
+/** Roles that must use a second factor. */
+export function mfaRequiredRoles(e: Env = env()): string[] {
+  const raw = e.MFA_REQUIRED_ROLES ?? (e.APP_ENV === "production" || e.APP_ENV === "staging" ? "OWNER,ADMIN" : "");
+  return raw.split(",").map((r) => r.trim().toUpperCase()).filter(Boolean);
+}
+
+export const ssoConfigured = (e: Env = env()) => !!(e.OIDC_ISSUER && e.OIDC_CLIENT_ID && e.OIDC_CLIENT_SECRET);

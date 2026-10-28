@@ -12,6 +12,7 @@ import { refreshExpiringTokens } from "@/server/services/social";
 import { runAutopilot } from "@/server/services/autopilot";
 import { dispatchCollection } from "@/server/services/analytics-collect";
 import { computeInsights } from "@/server/services/insights";
+import { publishMetrics } from "@/server/queue/metrics";
 
 export const GENERATION_KIND_QUEUE: Record<GenerationKind, QueueName> = {
   TEXT: "generation-text",
@@ -106,6 +107,7 @@ export const maintenanceProcessors = {
   "autopilot.run": async () => runAutopilot(),
   "analytics.dispatch": async () => dispatchCollection(),
   "analytics.insights": async () => computeInsights(),
+  "metrics.publish": async () => publishMetrics(),
 };
 
 export const MAINTENANCE_SCHEDULES = [
@@ -116,4 +118,5 @@ export const MAINTENANCE_SCHEDULES = [
   { id: "autopilot-run", jobName: "autopilot.run", everyMs: 30 * 60_000 },
   { id: "analytics-dispatch", jobName: "analytics.dispatch", everyMs: 60 * 60_000 },
   { id: "analytics-insights", jobName: "analytics.insights", everyMs: 6 * 60 * 60_000 },
+  { id: "metrics-publish", jobName: "metrics.publish", everyMs: 60_000 },
 ] as const;

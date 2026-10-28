@@ -7,8 +7,10 @@ import { ZodError, type z } from "zod";
 import type { Permission } from "@/lib/rbac";
 import { InvalidTransitionError } from "@/lib/state-machines";
 import { logger } from "./logger";
-import { ForbiddenError, requestMeta, requirePermission, type CurrentUser } from "./auth/session";
+import { ForbiddenError, MfaSetupRequiredError, requestMeta, requirePermission, type CurrentUser } from "./auth/session";
 import { DomainError } from "./errors";
+import { env } from "./env";
+import { enforce } from "./rate-limit";
 
 export type ActionResult<T = undefined> = { ok: true; data?: T; message?: string } | { ok: false; error: string };
 
@@ -23,6 +25,7 @@ export function defineAction<S extends z.ZodType, T>(
   return async (raw: unknown): Promise<ActionResult<T>> => {
     try {
       const user = await requirePermission(permission);
+      await enforce("action", user.id, env().RATE_LIMIT_ACTIONS_PER_MINUTE);
       const parsed = schema.safeParse(raw);
       if (!parsed.success) return { ok: false, error: parsed.error.issues.map((i) => i.message).join("; ") };
       const data = await handler(parsed.data, { user, meta: await requestMeta() });
@@ -30,6 +33,7 @@ export function defineAction<S extends z.ZodType, T>(
       return { ok: true, data };
     } catch (err) {
       if (err instanceof ForbiddenError) return { ok: false, error: "You do not have permission for this action." };
+      if (err instanceof MfaSetupRequiredError) return { ok: false, error: err.message };
       if (EXPECTED_ERRORS.some((E) => err instanceof E)) return { ok: false, error: (err as Error).message };
       if (err instanceof ZodError) return { ok: false, error: err.issues.map((i) => i.message).join("; ") };
       // redirect()/notFound() from next/navigation must propagate

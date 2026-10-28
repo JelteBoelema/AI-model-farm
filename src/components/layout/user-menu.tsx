@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, Settings } from "lucide-react";
+import { LogOut, Settings, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +37,11 @@ export function UserMenu({ name, email, role, signOutAction }: { name: string; e
         <DropdownMenuItem asChild>
           <Link href="/settings">
             <Settings /> Settings
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/account/security">
+            <ShieldCheck /> Two-factor authentication
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => void signOutAction()}>

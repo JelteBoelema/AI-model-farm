@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { env } from "@/server/env";
+import { clientAddress, hit, tooManyRequests } from "@/server/rate-limit";
 import type { Platform } from "@prisma/client";
 import { actingUserOf, getCurrentUser } from "@/server/auth/session";
 import { DomainError } from "@/server/errors";
@@ -16,8 +18,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ platform
   const platform = PLATFORMS[(await params).platform];
   const back = (q: Record<string, string>) => NextResponse.redirect(new URL(`/social?${new URLSearchParams(q)}`, url.origin), 303);
   if (!platform) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const limited = await hit("api-social-callback", clientAddress(req.headers), env().RATE_LIMIT_API_PER_MINUTE);
+  if (!limited.allowed) return tooManyRequests(limited);
   const user = await getCurrentUser();
   if (!user) return NextResponse.redirect(new URL("/login", url.origin), 303);
+  if (user.mfaSetupRequired) return NextResponse.redirect(new URL("/account/security", url.origin), 303);
   try {
     const account = await completeConnect(actingUserOf(user), {
       platform,

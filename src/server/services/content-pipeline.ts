@@ -47,7 +47,7 @@ import { db } from "../db";
 import { DomainError } from "../errors";
 import { logger } from "../logger";
 import { assembleVideo, extractFrame, FfmpegError, probe } from "../media/ffmpeg";
-import { createAdapter, parseConfig, selectProvider } from "../providers/registry";
+import { createAdapter, LocalRateLimitError, parseConfig, selectProvider } from "../providers/registry";
 import { ProviderError, type GenerationRequest, type ReferenceImage } from "../providers/types";
 import { enqueue } from "../queue/queues";
 import { QUEUES, type QueueName } from "../queue/definitions";
@@ -754,6 +754,13 @@ export async function runContentStepJob(job: Pick<Job<ContentStepJob>, "data" | 
     if (advanced) await scheduleNextStep(item.id);
     return { ok: true };
   } catch (err) {
+    if (err instanceof LocalRateLimitError && !polling) {
+      // Nothing was sent or billed: wait for the next window (spread out) without using an attempt.
+      assertTransition("generationJob", "RUNNING", "QUEUED");
+      await db.generationJob.update({ where: { id: gen.id }, data: { status: "QUEUED", attempt: gen.attempt, error: { kind: "rate_limit_wait", message: err.message } } });
+      await queueJob({ ...gen, status: "QUEUED" }, { suffix: `wait${Date.now()}`, delayMs: (err.options.retryAfterMs ?? 60_000) + Math.floor(Math.random() * 20_000) });
+      return { deferred: "rate_limit" };
+    }
     const c = classify(err);
     if (err instanceof ChargedProviderError && err.costMicros !== null) spent += err.costMicros;
     const final = !c.retryable || job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
@@ -956,3 +963,34 @@ async function finishQc(item: ContentItem, jobId: string, verdict: QcOutput, ctx
 export const contentProcessors = {
   "content.step": (job: Job<ContentStepJob>, signal: AbortSignal) => runContentStepJob(job, signal),
 };
+
+/**
+ * After Redis was lost: puts every content step that the database says is waiting back on its
+ * queue. Polls of long-running provider jobs resume. A synchronous step that was running when the
+ * queue disappeared may already have been paid for, so it is never re-run blindly: the item stops
+ * at that step and a person resumes it after checking the cost ledger.
+ */
+export async function requeueContentJobs(now = new Date()) {
+  const tag = `rebuild${now.getTime()}`;
+  let queued = 0;
+  let polling = 0;
+  let interrupted = 0;
+  const jobs = await db.generationJob.findMany({ where: { status: { in: [...ACTIVE_JOB_STATUSES] }, contentItemId: { not: null } } });
+  for (const job of jobs) {
+    if (job.status === "QUEUED") {
+      await queueJob(job, { suffix: `wait${tag}` });
+      queued++;
+    } else if (job.providerJobId) {
+      await queueJob(job, { suffix: `poll${tag}` });
+      polling++;
+    } else {
+      assertTransition("generationJob", "RUNNING", "FAILED");
+      const { count } = await db.generationJob.updateMany({ where: { id: job.id, status: "RUNNING" }, data: { status: "FAILED", finishedAt: now, error: { code: "QUEUE_LOST", message: "Interrupted when the job queue was lost" } } });
+      if (count === 1) {
+        await markStepFailed(job.contentItemId!, job.step as PipelineStep, "Interrupted when the job queue was lost; check the cost ledger, then resume");
+        interrupted++;
+      }
+    }
+  }
+  return { queued, polling, interrupted };
+}

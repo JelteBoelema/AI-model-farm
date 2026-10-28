@@ -1,0 +1,121 @@
+{
+  "namespace": "CreatorFarm",
+  "periodSeconds": 60,
+  "queues": [
+    "planning",
+    "generation-text",
+    "generation-image",
+    "generation-video",
+    "media-processing",
+    "publishing",
+    "analytics",
+    "maintenance"
+  ],
+  "roles": [
+    "generation",
+    "media",
+    "publishing",
+    "scheduler"
+  ],
+  "alarms": [
+    {
+      "name": "dead-letter-jobs",
+      "metric": "DeadLetterJobs",
+      "comparison": "GreaterThanThreshold",
+      "threshold": 0,
+      "evaluationPeriods": 1,
+      "statistic": "Maximum",
+      "missingData": "notBreaching",
+      "severity": "critical",
+      "runbook": "docs/runbooks/alarms.md#dead-letter-jobs",
+      "description": "A job failed all its attempts and was moved to the dead-letter queue."
+    },
+    {
+      "name": "queue-backlog-high",
+      "metric": "QueueBacklog",
+      "perQueue": true,
+      "comparison": "GreaterThanThreshold",
+      "threshold": 200,
+      "evaluationPeriods": 15,
+      "statistic": "Average",
+      "missingData": "notBreaching",
+      "severity": "warning",
+      "runbook": "docs/runbooks/alarms.md#queue-backlog-high",
+      "description": "More than 200 jobs waiting for 15 minutes: workers cannot keep up (autoscaling at its maximum, or a provider is slow)."
+    },
+    {
+      "name": "oldest-job-waiting",
+      "metric": "OldestWaitingSeconds",
+      "perQueue": true,
+      "comparison": "GreaterThanThreshold",
+      "threshold": 1800,
+      "evaluationPeriods": 5,
+      "statistic": "Maximum",
+      "missingData": "notBreaching",
+      "severity": "warning",
+      "runbook": "docs/runbooks/alarms.md#oldest-job-waiting",
+      "description": "A job has waited more than 30 minutes for a worker."
+    },
+    {
+      "name": "workers-missing",
+      "metric": "WorkersAlive",
+      "perRole": true,
+      "comparison": "LessThanThreshold",
+      "threshold": 1,
+      "evaluationPeriods": 3,
+      "statistic": "Minimum",
+      "missingData": "breaching",
+      "severity": "critical",
+      "runbook": "docs/runbooks/alarms.md#workers-missing",
+      "description": "No live worker for a role for 3 minutes (also fires when metrics stop arriving: the scheduler publishes them)."
+    },
+    {
+      "name": "stuck-jobs",
+      "metric": "StuckJobs",
+      "comparison": "GreaterThanThreshold",
+      "threshold": 0,
+      "evaluationPeriods": 5,
+      "statistic": "Maximum",
+      "missingData": "notBreaching",
+      "severity": "warning",
+      "runbook": "docs/runbooks/alarms.md#stuck-jobs",
+      "description": "Generation jobs running far beyond their queue's limit."
+    },
+    {
+      "name": "publishing-failures",
+      "metric": "PublishingFailedLastHour",
+      "comparison": "GreaterThanThreshold",
+      "threshold": 3,
+      "evaluationPeriods": 1,
+      "statistic": "Maximum",
+      "missingData": "notBreaching",
+      "severity": "critical",
+      "runbook": "docs/runbooks/alarms.md#publishing-failures",
+      "description": "More than 3 publications failed in the last hour."
+    },
+    {
+      "name": "budget-pause-active",
+      "metric": "BudgetPausesActive",
+      "comparison": "GreaterThanThreshold",
+      "threshold": 0,
+      "evaluationPeriods": 1,
+      "statistic": "Maximum",
+      "missingData": "notBreaching",
+      "severity": "warning",
+      "runbook": "docs/runbooks/alarms.md#budget-pause-active",
+      "description": "A budget limit paused generation for a scope."
+    },
+    {
+      "name": "accounts-need-reconnect",
+      "metric": "AccountsNeedingReconnect",
+      "comparison": "GreaterThanThreshold",
+      "threshold": 0,
+      "evaluationPeriods": 1,
+      "statistic": "Maximum",
+      "missingData": "notBreaching",
+      "severity": "warning",
+      "runbook": "docs/runbooks/alarms.md#accounts-need-reconnect",
+      "description": "A social account token expired or was revoked; publishing to it stops until reconnected."
+    }
+  ]
+}

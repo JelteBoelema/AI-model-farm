@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { env } from "@/server/env";
+import { clientAddress, hit, tooManyRequests } from "@/server/rate-limit";
 import { db } from "@/server/db";
 import { getCurrentUser } from "@/server/auth/session";
 import { assertValidKey, storage } from "@/server/storage";
@@ -10,8 +12,11 @@ const HEADERS = { "cache-control": "private, max-age=300", "x-content-type-optio
 // Authenticated media delivery for the local storage driver (S3 uses short-lived signed URLs).
 // Supports single byte ranges so browsers can seek in video and audio.
 export async function GET(req: Request, { params }: { params: Promise<{ key: string[] }> }) {
+  const limited = await hit("api-media", clientAddress(req.headers), env().RATE_LIMIT_API_PER_MINUTE);
+  if (!limited.allowed) return tooManyRequests(limited);
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (user.mfaSetupRequired) return NextResponse.json({ error: "mfa_setup_required" }, { status: 403 });
   const key = (await params).key.join("/");
   try {
     assertValidKey(key);

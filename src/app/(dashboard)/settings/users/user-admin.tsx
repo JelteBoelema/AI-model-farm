@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { humanize } from "@/lib/utils";
-import { changeRoleAction, createUserAction, setDisabledAction } from "../actions";
+import { changeRoleAction, createUserAction, resetMfaAction, setDisabledAction } from "../actions";
 
 const ROLES = ["OWNER", "ADMIN", "OPERATOR", "VIEWER"] as const;
 type Role = (typeof ROLES)[number];
@@ -22,6 +22,7 @@ export interface UserRow {
   email: string;
   role: Role;
   disabled: boolean;
+  mfa: boolean;
   lastLogin: string;
 }
 
@@ -95,7 +96,7 @@ export function CreateUserDialog() {
   );
 }
 
-export function UserTable({ users, currentUserId, canManage }: { users: UserRow[]; currentUserId: string; canManage: boolean }) {
+export function UserTable({ users, currentUserId, canManage, isOwner }: { users: UserRow[]; currentUserId: string; canManage: boolean; isOwner: boolean }) {
   const [pending, start] = useTransition();
 
   function call(fn: () => Promise<{ ok: boolean; error?: string }>, success: string) {
@@ -148,7 +149,10 @@ export function UserTable({ users, currentUserId, canManage }: { users: UserRow[
                 )}
               </TableCell>
               <TableCell>
-                <StatusBadge status={u.disabled ? "DISABLED" : "ACTIVE"} />
+                <span className="flex flex-wrap items-center gap-1">
+                  <StatusBadge status={u.disabled ? "DISABLED" : "ACTIVE"} />
+                  <span className="text-xs text-muted-foreground">{u.mfa ? "2FA on" : "no 2FA"}</span>
+                </span>
               </TableCell>
               <TableCell className="text-xs text-muted-foreground">{u.lastLogin}</TableCell>
               {canManage ? (
@@ -161,6 +165,20 @@ export function UserTable({ users, currentUserId, canManage }: { users: UserRow[
                       onClick={() => call(() => setDisabledAction({ userId: u.id, disabled: !u.disabled }), u.disabled ? "User enabled" : "User disabled")}
                     >
                       {u.disabled ? "Enable" : "Disable"}
+                    </Button>
+                  ) : null}
+                  {isOwner && !self && u.mfa ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="ml-2"
+                      disabled={pending}
+                      onClick={() => {
+                        const reason = window.prompt(`Why reset two-factor authentication for ${u.email}? They set it up again at their next sign-in.`);
+                        if (reason) call(() => resetMfaAction({ userId: u.id, reason }), "Two-factor authentication reset");
+                      }}
+                    >
+                      Reset 2FA
                     </Button>
                   ) : null}
                 </TableCell>

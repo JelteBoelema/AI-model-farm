@@ -2,7 +2,7 @@
 # Multi-stage build. Targets:
 #   web     – Next.js standalone server (dashboard + API)
 #   worker  – BullMQ workers (role chosen with WORKER_QUEUES), includes FFmpeg
-#   migrate – one-shot `prisma migrate deploy` (also runs the seed script)
+#   migrate – one-shot `prisma migrate deploy` (production dependencies only; seed from an admin host)
 
 ARG NODE_VERSION=22.22.0
 
@@ -27,7 +27,8 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 
 # ── web ──────────────────────────────────────────────────────────────────────
 FROM node:${NODE_VERSION}-bookworm-slim AS web
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates curl && rm -rf /var/lib/apt/lists/*
+# Package managers are not needed at runtime (and only add attack surface).
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends openssl ca-certificates curl && rm -rf /var/lib/apt/lists/* && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-*
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 RUN groupadd --system app && useradd --system --gid app app
@@ -40,7 +41,7 @@ CMD ["node", "server.js"]
 
 # ── worker ───────────────────────────────────────────────────────────────────
 FROM node:${NODE_VERSION}-bookworm-slim AS worker
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates curl ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends openssl ca-certificates curl ffmpeg && rm -rf /var/lib/apt/lists/* && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-*
 WORKDIR /app
 ENV NODE_ENV=production WORKER_HEALTH_PORT=9464
 RUN groupadd --system app && useradd --system --gid app app
@@ -53,6 +54,14 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD curl -fsS http://
 CMD ["node", "--enable-source-maps", "dist/worker/main.mjs"]
 
 # ── migrate ──────────────────────────────────────────────────────────────────
-FROM build AS migrate
+# Production dependencies only (the Prisma CLI is one); no build tooling or dev dependencies.
+FROM node:${NODE_VERSION}-bookworm-slim AS migrate
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/* && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-*
+WORKDIR /app
 ENV NODE_ENV=production
-CMD ["pnpm", "exec", "prisma", "migrate", "deploy"]
+RUN groupadd --system app && useradd --system --gid app app
+COPY --from=prod-deps --chown=app:app /app/node_modules ./node_modules
+COPY --chown=app:app package.json ./
+COPY --chown=app:app prisma ./prisma
+USER app
+CMD ["node", "node_modules/prisma/build/index.js", "migrate", "deploy"]
