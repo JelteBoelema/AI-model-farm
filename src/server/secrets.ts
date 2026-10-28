@@ -1,7 +1,18 @@
 // Credentials are never stored in our tables. Rows carry a *reference* such as
 // "env:ANTHROPIC_API_KEY" or "aws-sm:creatorfarm/prod/anthropic" which is resolved at call time.
 
-import { GetSecretValueCommand, ResourceNotFoundException, SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import {
+  CreateSecretCommand,
+  DeleteSecretCommand,
+  GetSecretValueCommand,
+  PutSecretValueCommand,
+  ResourceExistsException,
+  ResourceNotFoundException,
+  SecretsManagerClient,
+} from "@aws-sdk/client-secrets-manager";
+import { decrypt, encrypt } from "./crypto";
 import { env } from "./env";
 
 export class SecretNotConfiguredError extends Error {
@@ -51,7 +62,62 @@ const awsSecretStore: SecretStore = {
   },
 };
 
-const stores: Record<string, SecretStore> = { env: envSecretStore, "aws-sm": awsSecretStore };
+// Secrets the platform writes itself (social-account tokens). Development and tests keep them in
+// AES-256-GCM encrypted files (the secret name is bound as associated data); production writes to
+// AWS Secrets Manager, which env validation enforces.
+const LOCAL_NAME = /^[a-z0-9][a-z0-9/_-]{2,200}$/;
+const localDir = () => process.env.SECRETS_LOCAL_DIR ?? "./.data/secrets";
+const localFile = (name: string) => {
+  if (!LOCAL_NAME.test(name) || name.includes("..")) throw new Error("Invalid secret name");
+  return path.join(localDir(), `${name.replaceAll("/", "__")}.enc`);
+};
+
+const localSecretStore: SecretStore = {
+  scheme: "local",
+  async get(name) {
+    try {
+      return decrypt((await readFile(localFile(name), "utf8")).trim(), env().APP_ENCRYPTION_KEY, `secret:${name}`);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw err;
+    }
+  },
+};
+
+const stores: Record<string, SecretStore> = { env: envSecretStore, "aws-sm": awsSecretStore, local: localSecretStore };
+
+/** Writes (or replaces) a secret the platform owns and returns its reference. */
+export async function storeSecret(name: string, value: string): Promise<string> {
+  if (env().SECRETS_DRIVER === "aws") {
+    const id = `creatorfarm/${env().APP_ENV === "production" ? "prod" : env().APP_ENV}/${name}`;
+    smClient ??= new SecretsManagerClient({});
+    try {
+      await smClient.send(new CreateSecretCommand({ Name: id, SecretString: value }));
+    } catch (err) {
+      if (!(err instanceof ResourceExistsException)) throw err;
+      await smClient.send(new PutSecretValueCommand({ SecretId: id, SecretString: value }));
+    }
+    secretCache.delete(id);
+    return `aws-sm:${id}`;
+  }
+  if (env().APP_ENV === "production") throw new Error("Production secrets must be written to the secrets manager");
+  await mkdir(localDir(), { recursive: true, mode: 0o700 });
+  await writeFile(localFile(name), encrypt(value, env().APP_ENCRYPTION_KEY, `secret:${name}`), { mode: 0o600 });
+  return `local:${name}`;
+}
+
+/** Removes a platform-owned secret (AWS keeps it recoverable for 7 days). */
+export async function deleteSecret(ref: string): Promise<void> {
+  const { scheme, name } = parseSecretRef(ref);
+  if (scheme === "local") await rm(localFile(name), { force: true });
+  else if (scheme === "aws-sm" && env().SECRETS_DRIVER === "aws") {
+    smClient ??= new SecretsManagerClient({});
+    await smClient.send(new DeleteSecretCommand({ SecretId: name, RecoveryWindowInDays: 7 })).catch((err) => {
+      if (!(err instanceof ResourceNotFoundException)) throw err;
+    });
+    secretCache.delete(name);
+  } else throw new Error(`Secrets of type ${scheme} are not owned by the platform`);
+}
 
 export function parseSecretRef(ref: string): { scheme: string; name: string } {
   const idx = ref.indexOf(":");

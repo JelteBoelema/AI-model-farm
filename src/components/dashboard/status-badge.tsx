@@ -23,6 +23,7 @@ const TONES: Record<string, Tone> = {
   DEGRADED: "warning",
   PENDING: "warning",
   PENDING_REVIEW: "warning",
+  PENDING_APPROVAL: "warning",
   QC_REVIEW: "warning",
   AWAITING_CONFIRMATION: "warning",
   NEEDS_MANUAL_ACTION: "warning",

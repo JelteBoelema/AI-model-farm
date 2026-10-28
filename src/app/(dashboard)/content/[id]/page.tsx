@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CircleAlert, CircleCheck, CircleDashed, CircleX, Loader2 } from "lucide-react";
 import { ItemActions, LiveRefresh, MediaReviewButtons, RegenerateShotButton } from "@/components/content/content-actions";
+import { JobActions, ScheduleForm } from "@/components/publishing/publishing-controls";
 import { OriginBadge } from "@/components/dashboard/origin-badge";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatusBadge } from "@/components/dashboard/status-badge";
@@ -12,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { FORMAT_SPECS, isProducible, stepLabel, stepsFor, type PipelineStep, type TechnicalCheck } from "@/lib/content-pipeline";
 import { formatMoney } from "@/lib/money";
 import { can } from "@/lib/rbac";
+import { formatInZone } from "@/lib/time";
 import { cn, formatDateTime, humanize } from "@/lib/utils";
 import { requireUser } from "@/server/auth/session";
 import { db } from "@/server/db";
@@ -48,7 +50,7 @@ export default async function ContentItemPage({ params }: Props) {
   const item = await db.contentItem.findUnique({
     where: { id },
     include: {
-      creator: { select: { id: true, name: true } },
+      creator: { select: { id: true, name: true, timezone: true } },
       campaign: { select: { id: true, name: true } },
       batch: { select: { id: true, name: true } },
       generationJobs: { orderBy: { createdAt: "asc" }, include: { provider: { select: { displayName: true } } } },
@@ -59,6 +61,12 @@ export default async function ContentItemPage({ params }: Props) {
   if (!item) notFound();
 
   const cost = await costPerUsableAsset({ contentItemId: item.id });
+  const [accounts, publications] = await Promise.all([
+    db.socialAccount.findMany({ where: { creatorId: item.creatorId }, orderBy: { handle: "asc" }, select: { id: true, handle: true, status: true, isMock: true } }),
+    db.publishingJob.findMany({ where: { contentItemId: item.id }, orderBy: { scheduledFor: "asc" }, include: { socialAccount: { select: { handle: true } } } }),
+  ]);
+  const publishable = ["APPROVED", "SCHEDULED", "PUBLISHING", "PUBLISHED", "FAILED"].includes(item.status);
+  const tz = item.creator.timezone;
   const busy = item.generationJobs.some((j) => j.status === "QUEUED" || j.status === "RUNNING");
   // Between two steps no job is active for a moment; keep refreshing while the chain is underway.
   const chainRunning =
@@ -89,7 +97,9 @@ export default async function ContentItemPage({ params }: Props) {
 
   return (
     <>
-      <LiveRefresh active={inFlight} />
+      <LiveRefresh
+        active={inFlight || publications.some((p) => ["QUEUED", "PUBLISHING", "AWAITING_CONFIRMATION"].includes(p.status) || (p.status === "SCHEDULED" && p.scheduledFor.getTime() < Date.now() + 120_000))}
+      />
       <PageHeader
         title={item.title}
         description={`${humanize(item.format)} · ${item.creator.name}${item.campaign ? ` · ${item.campaign.name}` : ""}${item.batch ? ` · batch ${item.batch.name}` : ""}`}
@@ -302,6 +312,49 @@ export default async function ContentItemPage({ params }: Props) {
             );
           })}
         </section>
+      ) : null}
+
+      {publishable ? (
+        <Card aria-label="Publishing">
+          <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle>Publishing</CardTitle>
+              <CardDescription>Times in {item.creator.name}&apos;s time zone ({tz}). The export package is the supported alternative when API publishing is not possible.</CardDescription>
+            </div>
+            {can(user.role, "publishing:schedule") ? (
+              <a href={`/api/content/${item.id}/export`} className="text-sm underline-offset-2 hover:underline" download>
+                Download export package
+              </a>
+            ) : null}
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            {can(user.role, "publishing:schedule") && item.status !== "PUBLISHED" ? <ScheduleForm itemId={item.id} accounts={accounts} timeZone={tz} /> : null}
+            {publications.length ? (
+              <ul className="divide-y rounded-md border" aria-label="Publications">
+                {publications.map((pub) => {
+                  const err = pub.lastError as { message?: string } | null;
+                  return (
+                    <li key={pub.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+                      <span className="font-medium">@{pub.socialAccount.handle}</span>
+                      <span className="text-muted-foreground">{formatInZone(pub.scheduledFor, tz)}</span>
+                      <StatusBadge status={pub.status} />
+                      {pub.isMock ? <OriginBadge kind="mock" /> : null}
+                      {pub.externalUrl ? (
+                        <a href={pub.externalUrl} className="text-xs underline-offset-2 hover:underline">
+                          View post
+                        </a>
+                      ) : null}
+                      <span className="ml-auto">
+                        {can(user.role, "publishing:schedule") ? <JobActions jobId={pub.id} status={pub.status} timeZone={tz} label={`@${pub.socialAccount.handle}`} /> : null}
+                      </span>
+                      {err?.message && pub.status !== "PUBLISHED" ? <p className="w-full text-xs text-destructive">{err.message}</p> : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+          </CardContent>
+        </Card>
       ) : null}
 
       <Card>

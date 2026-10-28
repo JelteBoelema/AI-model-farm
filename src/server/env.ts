@@ -28,6 +28,8 @@ export const envSchema = z
     S3_ENDPOINT: z.string().url().optional(),
     S3_FORCE_PATH_STYLE: bool.default(false),
     SECRETS_DRIVER: z.enum(["env", "aws"]).default("env"),
+    // Public base URL of the app (also used by Auth.js); OAuth redirect URIs are built from it.
+    AUTH_URL: z.string().url().optional(),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
     WORKER_QUEUES: z.string().optional(),
     WORKER_HEALTH_PORT: z.coerce.number().int().positive().default(9464),

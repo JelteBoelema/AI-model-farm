@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Megaphone } from "lucide-react";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { OriginBadge } from "@/components/dashboard/origin-badge";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { PhaseNotice } from "@/components/dashboard/phase-notice";
+import { CampaignDialog } from "@/components/campaigns/campaign-controls";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { parseFilters } from "@/lib/filters";
 import { formatMoney } from "@/lib/money";
+import { can } from "@/lib/rbac";
 import { formatDateTime } from "@/lib/utils";
+import { requireUser } from "@/server/auth/session";
 import { db } from "@/server/db";
 
 export const metadata: Metadata = { title: "Campaigns" };
@@ -17,6 +20,8 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 
 export default async function CampaignsPage({ searchParams }: Props) {
   const f = parseFilters(await searchParams);
+  const user = await requireUser();
+  const allCreators = await db.creator.findMany({ where: { status: { not: "ARCHIVED" } }, orderBy: { name: "asc" }, select: { id: true, name: true } });
   const campaigns = await db.campaign.findMany({
     where: { ...(f.campaign ? { id: f.campaign } : {}), ...(f.creator ? { creators: { some: { creatorId: f.creator } } } : {}) },
     orderBy: [{ status: "asc" }, { startsAt: "desc" }],
@@ -26,8 +31,11 @@ export default async function CampaignsPage({ searchParams }: Props) {
 
   return (
     <>
-      <PageHeader title="Campaigns" description="Campaigns group content across creators with their own budget and prompts." />
-      <PhaseNotice phase={7} title="Campaign planning" items={["Create and edit campaigns and briefs", "Assign creators and campaign prompts", "Campaign budgets with hard stop", "Campaign-level pause and results"]} />
+      <PageHeader
+        title="Campaigns"
+        description="Campaigns group content across creators with their own brief, budget, prompt pins and pause switch."
+        actions={can(user.role, "content:edit") ? <CampaignDialog creators={allCreators} /> : undefined}
+      />
       <Card>
         <CardContent className="px-0 pt-2">
           {campaigns.length === 0 ? (
@@ -50,9 +58,9 @@ export default async function CampaignsPage({ searchParams }: Props) {
                   return (
                     <TableRow key={c.id}>
                       <TableCell className="max-w-xs">
-                        <p className="flex items-center gap-2 font-medium">
+                        <Link href={`/campaigns/${c.id}`} className="flex items-center gap-2 font-medium hover:underline">
                           {c.name} {c.isDemo ? <OriginBadge kind="demo" /> : null}
-                        </p>
+                        </Link>
                         <p className="truncate text-xs text-muted-foreground">{c.objective}</p>
                       </TableCell>
                       <TableCell className="text-xs">{c.creators.map((x) => x.creator.name).join(", ") || "—"}</TableCell>

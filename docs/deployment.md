@@ -19,7 +19,13 @@
 
 Netwerk: VPC met private subnets voor taken, RDS en Redis; alleen de ALB is publiek. Uitgaand verkeer naar providers via NAT-gateway. Security groups staan alleen web/workers → RDS (5432) en → Redis (6379) toe.
 
-IAM: aparte task roles — `web` (S3 lezen/schrijven op de mediabucket, Secrets Manager lezen op `creatorfarm/prod/*` behalve `social/*`), `worker` (idem + `social/*` voor de publishing-rol). Execution role leest alleen de platformsecrets.
+IAM: aparte task roles. De execution role leest alleen de platformsecrets.
+- `web`:
+  - S3 lezen/schrijven op de mediabucket;
+  - Secrets Manager lezen op `creatorfarm/prod/*`;
+  - op `creatorfarm/prod/social/*` ook aanmaken, wijzigen en verwijderen: de OAuth-callback en het ontkoppelen beheren de tokens van gekoppelde accounts.
+- `worker`: dezelfde rechten als `web`, maar op `social/*` alleen lezen en wijzigen (tokenvernieuwing), niet verwijderen.
+- Zie `infra/aws/iam-social-secrets.json`.
 
 Templates: `infra/aws/task-web.json`, `task-worker.json` (één template, vier services via `WORKER_ROLE`), `task-migrate.json`, autoscaling in `infra/aws/worker-autoscaling.md`.
 

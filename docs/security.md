@@ -53,6 +53,12 @@ Wijzigingen die expliciete toestemming vereisen (nieuwe externe accountkoppeling
 - Een `auth`- of `quota`-fout van een provider pauzeert die provider automatisch en stuurt een kritieke melding; hervatten is een bewuste actie van een admin.
 - Prijslijsten en providerinstellingen wijzigen kan alleen een admin (`providers:manage`) en wordt geaudit.
 - FFmpeg draait zonder shell: argumenten als array, elk proces in een eigen tijdelijke map die altijd wordt opgeruimd, met een AbortSignal voor de tijdslimiet. Video-downloads van Veo worden alleen van Google-hosts geaccepteerd en met de sleutel in een header opgehaald, nooit in de URL.
+- **Socialmediakoppelingen**:
+  - OAuth-`state` is eenmalig (atomisch gelezen en verwijderd), verloopt na 10 minuten en hoort bij de gebruiker die de koppeling startte; PKCE (S256).
+  - De callback accepteert alleen de vaste route; het mock-toestemmingsscherm stuurt alleen terug naar die route.
+  - Tokens staan alleen in de secret store: lokaal AES-256-GCM met de secretnaam als associated data, in productie AWS Secrets Manager onder `creatorfarm/prod/social/<id>` (IAM in `infra/aws/iam-social-secrets.json`).
+  - Een nieuwe koppeling door een admin vereist goedkeuring door de owner; bij afwijzen of ontkoppelen worden de tokens verwijderd.
+- Mock-media kunnen nooit naar een echt account; dat wordt bij inplannen én bij publiceren gecontroleerd.
 - Rotatie: `AUTH_SECRET` roteren logt iedereen uit; provider-keys roteren in Secrets Manager, cache verloopt binnen 5 minuten.
 
 ## Uploads (referentiebeelden)
