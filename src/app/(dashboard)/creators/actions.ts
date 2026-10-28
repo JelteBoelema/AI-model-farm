@@ -1,7 +1,6 @@
 "use server";
 
 import { z } from "zod";
-import { toMicros } from "@/lib/money";
 import { AUTONOMY_MODES, characterDraftSchema, creatorProfileSchema } from "@/lib/schemas/creator";
 import { defineAction } from "@/server/actions";
 import { actingUserOf } from "@/server/auth/session";
@@ -11,9 +10,9 @@ import {
   createCreator,
   duplicateCreator,
   setAutonomyMode,
-  setCreatorBudget,
   updateCreator,
 } from "@/server/services/creators";
+import { changeBudget } from "@/server/services/policy-admin";
 
 const id = z.string().uuid();
 const REVALIDATE = { revalidate: ["/creators", "/characters", "/"] };
@@ -65,7 +64,7 @@ export const setCreatorBudgetAction = defineAction(
     period: z.enum(["DAY", "MONTH"]),
     amountEur: z.string().trim().regex(/^\d{1,7}(\.\d{1,2})?$/, "Enter an amount such as 150 or 150.50").nullable(),
   }),
-  async (input, { user }) =>
-    setCreatorBudget(actingUserOf(user), input.creatorId, input.period, input.amountEur === null ? null : toMicros(input.amountEur)),
+  // Raising or removing a limit is filed as a request for the owner unless the owner makes it.
+  async (input, { user }) => changeBudget(actingUserOf(user), { scope: "CREATOR", targetId: input.creatorId, period: input.period, limitEur: input.amountEur }),
   REVALIDATE,
 );

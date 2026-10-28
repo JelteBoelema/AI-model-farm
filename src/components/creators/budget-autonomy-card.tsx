@@ -28,7 +28,8 @@ export function BudgetAutonomyCard({ creatorId, autonomyMode, budgets, perms, di
     const value = amounts[period].trim();
     start(async () => {
       const res = await setCreatorBudgetAction({ creatorId, period, amountEur: value === "" ? null : value });
-      if (res.ok) toast.success(value === "" ? "Budget removed" : "Budget saved");
+      if (res.ok && res.data?.applied === false) toast.success("Raising a limit needs the owner: request sent for approval");
+      else if (res.ok) toast.success(value === "" ? "Budget removed" : "Budget saved");
       else toast.error(res.error);
     });
   }
@@ -46,7 +47,7 @@ export function BudgetAutonomyCard({ creatorId, autonomyMode, budgets, perms, di
       <CardHeader>
         <CardTitle>Budget & autonomy</CardTitle>
         <CardDescription>
-          Hard limits enforced server-side on top of the farm-wide budget. Adding or lowering a limit: admin. Raising or removing one: owner.
+          Hard limits enforced server-side on top of the farm-wide budget. Adding or lowering a limit: admin. Raising or removing one needs the owner; admins send a request.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">

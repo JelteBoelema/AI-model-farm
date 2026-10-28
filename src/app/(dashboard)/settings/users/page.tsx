@@ -12,6 +12,7 @@ export default async function UsersPage() {
   const user = await requireUser();
   const canManage = can(user.role, "users:manage");
   const users = await db.user.findMany({
+    where: { isSystem: false },
     orderBy: [{ disabledAt: "asc" }, { createdAt: "asc" }],
     select: { id: true, name: true, email: true, role: true, disabledAt: true, lastLoginAt: true },
   });

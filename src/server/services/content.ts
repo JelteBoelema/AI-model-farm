@@ -11,6 +11,7 @@ import { recordAudit } from "../audit";
 import { db } from "../db";
 import { DomainError } from "../errors";
 import { ACTIVE_JOB_STATUSES, finalVideo, formatSpec, resumeItem, scheduleNextStep, scheduleTakes, shotList } from "./content-pipeline";
+import { effectivePolicy } from "./policy";
 import type { ActingUser } from "./users";
 
 function require(by: ActingUser, permission: Permission) {
@@ -59,9 +60,8 @@ async function assertTarget(input: { creatorId: string; campaignId: string | nul
     throw new DomainError(`A ${spec.label.toLowerCase()} has ${spec.minShots === spec.maxShots ? spec.minShots : `${spec.minShots}–${spec.maxShots}`} ${spec.kind === "video" ? "scene(s)" : "image(s)"}`);
 }
 
-async function maxGenerations() {
-  const policy = await db.autonomyPolicy.findFirst({ where: { scope: "GLOBAL" }, select: { maxGenerationsPerItem: true } });
-  return policy?.maxGenerationsPerItem ?? 6;
+async function maxGenerations(creatorId: string, campaignId: string | null) {
+  return (await effectivePolicy({ creatorId, campaignId })).maxGenerationsPerItem ?? 6;
 }
 
 function initialScript(format: ContentFormat, shots?: number): Prisma.InputJsonValue {
@@ -82,7 +82,7 @@ export async function createContent(by: ActingUser, raw: z.input<typeof createCo
         idea: input.idea,
         format: input.format,
         script: initialScript(input.format, input.shots),
-        maxGenerations: await maxGenerations(),
+        maxGenerations: await maxGenerations(input.creatorId, input.campaignId),
         createdById: by.id,
       },
     });
@@ -97,7 +97,7 @@ export async function createBatch(by: ActingUser, raw: z.input<typeof createBatc
   require(by, "content:edit");
   const input = createBatchSchema.parse(raw);
   await assertTarget(input);
-  const limit = await maxGenerations();
+  const limit = await maxGenerations(input.creatorId, input.campaignId);
   const batch = await db.$transaction(async (tx) => {
     const b = await tx.contentBatch.create({ data: { name: input.name, createdById: by.id } });
     await tx.contentItem.createMany({
@@ -161,6 +161,7 @@ export async function startProduction(by: ActingUser, itemId: string) {
   if (!profile) throw new DomainError("The creator has no approved character profile (Character Studio)");
   if (item.failedStep) throw new DomainError("A step failed; use Resume");
   await assertIdle(itemId);
+  await db.contentItem.update({ where: { id: itemId }, data: { productionStartedAt: new Date() } });
   await recordAudit(by.actor, { action: "content.production_started", entityType: "content_item", entityId: itemId, metadata: { from: item.status } });
   await scheduleNextStep(itemId);
 }
@@ -170,6 +171,7 @@ export async function resumeProduction(by: ActingUser, itemId: string) {
   const item = await loadForAction(itemId);
   if (item.creator.status !== "ACTIVE") throw new DomainError(`${item.creator.name} is ${item.creator.status.toLowerCase()}; activate the creator first`);
   await assertIdle(itemId);
+  await db.contentItem.update({ where: { id: itemId }, data: { productionStartedAt: new Date() } });
   await recordAudit(by.actor, { action: "content.production_resumed", entityType: "content_item", entityId: itemId, metadata: { step: item.failedStep } });
   await resumeItem(itemId);
 }
@@ -185,6 +187,7 @@ export async function regenerateShot(by: ActingUser, itemId: string, shot: numbe
   if (item.creator.status !== "ACTIVE") throw new DomainError(`${item.creator.name} is ${item.creator.status.toLowerCase()}; activate the creator first`);
   if (!shotList(item)[shot]) throw new DomainError("Unknown shot");
   await assertIdle(itemId);
+  await db.contentItem.update({ where: { id: itemId }, data: { productionStartedAt: new Date() } });
   await scheduleTakes(itemId, [shot], item.status);
   await recordAudit(by.actor, { action: "content.shot_regenerated", entityType: "content_item", entityId: itemId, metadata: { shot } });
 }

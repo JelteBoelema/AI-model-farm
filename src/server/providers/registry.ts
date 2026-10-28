@@ -18,6 +18,7 @@ import { VeoAdapter } from "./adapters/google-veo";
 import { MockImageAdapter, MockTextAdapter, MockVideoAdapter } from "./adapters/mock";
 import { IMAGE_QUALITIES, IMAGE_SIZES, OpenAiImagesAdapter } from "./adapters/openai-images";
 import { PROVIDER_CATALOG, type CatalogEntry } from "./catalog";
+import { assertHuman } from "../services/policy";
 import { hasPrice, parsePricing, type PriceUnit } from "./pricing";
 import { ProviderError, type ProviderAdapter } from "./types";
 
@@ -207,6 +208,7 @@ export async function verifyProvider(actor: Actor, providerId: string): Promise<
 
 /** Changing the model clears the previous verification: a new model needs its own connection test. */
 export async function updateProviderConfig(actor: Actor, providerId: string, patch: Partial<Pick<ProviderConfig, "model" | "bulkModel" | "effort" | "imageSize" | "imageQuality" | "voiceId" | "maxRequestsPerMinute" | "timeoutMs">>) {
+  assertHuman(actor); // rate limits and prices are limits too
   const row = await db.aiProvider.findUnique({ where: { id: providerId } });
   if (!row) throw new DomainError("Provider not found");
   const current = parseConfig(row.config);
@@ -221,6 +223,7 @@ export async function updateProviderConfig(actor: Actor, providerId: string, pat
 }
 
 export async function setProviderPricing(actor: Actor, providerId: string, pricing: unknown) {
+  assertHuman(actor); // rate limits and prices are limits too
   const row = await db.aiProvider.findUnique({ where: { id: providerId } });
   if (!row) throw new DomainError("Provider not found");
   if (row.isMock) throw new DomainError("Mock providers have a fixed zero price");
@@ -233,6 +236,7 @@ export async function setProviderPricing(actor: Actor, providerId: string, prici
 }
 
 export async function setProviderEnabled(actor: Actor, providerId: string, enabled: boolean) {
+  assertHuman(actor); // rate limits and prices are limits too
   const row = await db.aiProvider.findUnique({ where: { id: providerId } });
   if (!row) throw new DomainError("Provider not found");
   await db.aiProvider.update({ where: { id: providerId }, data: { status: enabled ? "NOT_CONFIGURED" : "DISABLED" } });

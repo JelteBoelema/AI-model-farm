@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { can } from "@/lib/rbac";
 import { formatMoney } from "@/lib/money";
 import { humanize } from "@/lib/utils";
@@ -66,7 +67,13 @@ export default async function ControlsPage() {
       <Card className="h-fit">
         <CardHeader>
           <CardTitle>Autonomy limits</CardTitle>
-          <CardDescription>Hard limits enforced server-side. Mode: controlled autonomy. Editing ships in phase 8 (owner only).</CardDescription>
+          <CardDescription>
+            Farm-wide hard limits, checked before every step. Change them, scoped policies and budgets under{" "}
+            <Link href="/settings/autonomy" className="underline">
+              Autonomy
+            </Link>
+            .
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {global ? (
@@ -79,6 +86,8 @@ export default async function ControlsPage() {
                   ["Posts per day", global.maxPostsPerDay],
                   ["Workflow duration", global.maxWorkflowMinutes ? `${global.maxWorkflowMinutes} min` : null],
                   ["Max retries", global.maxRetries],
+                  ["Autopilot items / day", global.maxNewItemsPerDay],
+                  ["Autopilot self-approval", global.autoApproveMinScore === null ? "Off" : `QC ≥ ${global.autoApproveMinScore}`],
                   ["Human approval", global.requireHumanApproval ? "Required" : "Not required"],
                 ] as const
               ).map(([k, v]) => (

@@ -108,7 +108,8 @@ function useRun() {
     start(async () => {
       const res = await fn();
       if (!res.ok) return void toast.error(res.error);
-      toast.success(success);
+      const filed = (res.data as { applied?: boolean } | undefined)?.applied === false;
+      toast.success(filed ? "Raising a limit needs the owner: request sent for approval" : success);
       router.refresh();
     });
   return { pending, run };
@@ -168,7 +169,7 @@ export function CampaignBudgetForm({ campaignId, current }: { campaignId: string
           <option value="DAY">Day</option>
         </NativeSelect>
       </Field>
-      <Field label="Limit (EUR)" htmlFor="cb-amount" hint="Empty removes the cap (owner only). Raising needs the owner.">
+      <Field label="Limit (EUR)" htmlFor="cb-amount" hint="Empty removes the cap. Raising or removing needs the owner; admins send a request.">
         <Input id="cb-amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="no cap" />
       </Field>
       <Button size="sm" disabled={pending} onClick={() => run(() => campaignBudgetAction({ campaignId, period, limitEur: amount.trim() === "" ? null : amount.trim() }), "Budget saved")}>

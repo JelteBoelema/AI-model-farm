@@ -203,7 +203,48 @@ Elke fase eindigt met werkende functionaliteit, groene tests (unit, integratie, 
 
 **Inhoud** — automatische planning binnen beleid, beleidscontroles vóór elke stap, harde limieten (budget, kosten per job, generaties per item, gelijktijdigheid, frequentie, workflowduur, retries), automatische pauze bij limieten, approvals-flow voor verhogingen.
 
-**Acceptatie** — geen enkele limiet is via een agent-pad te wijzigen (test); overschrijding pauzeert de juiste scope; verhoging vereist owner-goedkeuring.
+**Opgeleverd**
+- **Beleidsmotor** (`policy.ts`): de effectieve limiet is de strengste van het farm-brede, creator- en campagnebeleid. Een scope kan dus alleen aanscherpen; de UI en foutmeldingen noemen welke scope de limiet zet.
+- **Controles vóór elke stap**:
+  - kosten per job (vóór reservering);
+  - generaties per item;
+  - gelijktijdige jobs (de stap wacht 15 s en probeert opnieuw, zonder te falen);
+  - workflowduur sinds de start van de productie (keten stopt met `BLOCKED_POLICY`);
+  - retries (begrenzen de pogingen in de queue);
+  - posts per account per dag (planning en conflicten).
+- **Automatische pauze**:
+  - waarschuwing bij het drempelpercentage van een budget;
+  - bij de limiet pauzeert precies de bijbehorende scope (farm → alle generatie, creator, campagne of provider), met één kritieke melding per periode;
+  - alleen een mens kan hervatten.
+- **Approvals-flow** (Settings → Approvals):
+  - aanscherpen past een admin direct toe;
+  - een versoepeling (hoger of geen budget, ruimere limiet, zelfgoedkeuring aan of lager, verplichte review uit) door een admin wordt een verzoek;
+  - de owner beslist; een verzoek waarvan de limiet intussen veranderde, wordt geweigerd;
+  - ook de budgetformulieren bij creators en campagnes lopen via deze flow.
+- **Autopilot** (elke 30 min en via *Run planning now*):
+  - werkt als eigen service-identiteit (actor `AGENT`; gebruiker die nooit kan inloggen);
+  - *Assisted*: nieuwe ideeën, roterend over de contentpijlers, tot `max_new_items_per_day`, en productie tot review;
+  - *Controlled autonomy*: keurt daarnaast alleen eigen items goed die QC haalden met minstens de ingestelde score, en alleen als het farm-brede beleid dat toestaat en niemand menselijke review vereist; plant ze in de eerstvolgende vrije slots van een gekoppeld account;
+  - *Manual*: niets;
+  - respecteert pauzes en budgetten.
+- **Geen agent-pad naar limieten**: elke functie die limieten, budgetten, autonomiemodi, kill-switch-hervatting, providerinstellingen, accountkoppelingen of gebruikers wijzigt, weigert een niet-menselijke actor, ongeacht de rol. De autopilot importeert geen van die functies. De database borgt dat de service-identiteit uitgeschakeld blijft.
+- **UI**:
+  - Settings → Autonomy: limieten per scope, budgetten en de autopilotstatus met recente runs;
+  - Settings → Approvals: openstaande en beslissingen.
+
+**Acceptatie** — aangetoond:
+- [x] Geen enkele limiet is via een agent-pad te wijzigen. Aangetoond met 17 wijzigende functies met een `AGENT`-actor (zelfs met owner-rol), die alle geweigerd worden en de database ongewijzigd laten, plus een statische importcontrole van de autopilot. *(integratie)*
+- [x] Overschrijding pauzeert de juiste scope:
+  - creatorbudget: alleen die creator;
+  - farm-budget: alle generatie, publiceren niet;
+  - eerst een waarschuwing, geen dubbele pauzes of meldingen;
+  - workflowduur en gelijktijdigheid per stap. *(integratie)*
+- [x] Verhoging vereist owner-goedkeuring:
+  - het verzoek van een admin verandert niets;
+  - een admin kan het niet zelf goedkeuren;
+  - de owner past het toe;
+  - een verouderd verzoek wordt geweigerd. *(unit + integratie + e2e)*
+- [x] Autopilot per modus, dagquotum, zelfgoedkeuring alleen binnen beleid, inplannen in vrije slots, stoppen bij pauze. *(integratie)*
 
 ## Fase 9 — Analytics
 

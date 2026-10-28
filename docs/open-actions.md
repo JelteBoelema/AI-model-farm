@@ -4,7 +4,7 @@ Acties voor de eigenaar die bewust zijn uitgesteld tot de laatste fase, als het 
 
 ## 1. Pull requests reviewen en mergen
 
-Fase 3–7 bevatten databasemigraties (`prompt_studio`, `provider_execution`, `content_factory`, `video_engine`, `publishing`); die worden bij deployment automatisch toegepast door de `migrate`-taak.
+Fase 3–8 bevatten databasemigraties (`prompt_studio`, `provider_execution`, `content_factory`, `video_engine`, `publishing`, `autonomy`, `workflow_clock`); die worden bij deployment automatisch toegepast door de `migrate`-taak.
 
 De fasen worden gestapeld opgeleverd: elke fase-branch bouwt voort op de vorige. Merge ze **in volgorde** en klik na elke merge op *Delete branch*: GitHub zet de basis van de volgende PR dan automatisch op `main` (anders handmatig: *Edit → base: main*).
 
@@ -16,6 +16,7 @@ De fasen worden gestapeld opgeleverd: elke fase-branch bouwt voort op de vorige.
 | 5 — Content Factory | [#4](https://github.com/JelteBoelema/AI-model-farm/pull/4) | `phase-4-ai-providers` | wacht op review (na #3) |
 | 6 — Video Engine | [#5](https://github.com/JelteBoelema/AI-model-farm/pull/5) | `phase-5-content-factory` | wacht op review (na #4) |
 | 7 — Publishing | [#6](https://github.com/JelteBoelema/AI-model-farm/pull/6) | `phase-6-video-engine` | wacht op review (na #5) |
+| 8 — Autonomy | #7 | `phase-7-publishing` | wacht op review (na #6) |
 
 Per PR: beschrijving lezen, de CI-checks moeten groen zijn, eventueel lokaal draaien (`README.md` → *Snel starten*), dan *Merge*.
 
@@ -50,6 +51,16 @@ Zonder deze stappen draait alles op de gelabelde mockproviders; betaalde generat
 8. Per creator een **goedgekeurd karakterprofiel met canonieke referentiefoto's**: zonder profiel start de productie niet, zonder referenties controleert QC de karakterconsistentie niet.
 9. Optioneel: in de omgevingsinstellingen van Claude Code `developers.openai.com`, `ai.google.dev` en `elevenlabs.io` toevoegen aan de toegestane domeinen, zodat de providerdocumentatie tijdens het bouwen gecontroleerd kan worden.
 10. **Lip-syncprovider** kiezen voor talking-headvideo's (later; tot dan zijn alleen korte video's met voice-over te produceren).
+
+## 4. Autonomie instellen (na fase 8)
+
+1. Onder **Settings → Autonomy** de farm-brede limieten controleren. De seed zet veilige standaarden, maar laat de autopilot-velden leeg:
+   - nieuwe items per creator per dag: leeg betekent dat de autopilot niets start;
+   - zelfgoedkeuring: leeg betekent nooit.
+   Stel bewust in hoeveel de autopilot per dag mag starten, en of hij zelf mag goedkeuren (en vanaf welke QC-score).
+2. Per creator de **autonomiemodus** kiezen. Nieuwe creators staan standaard op *Controlled autonomy*. Wie eerst wil meekijken: *Assisted* (alleen productie tot review) of *Manual*.
+3. **Budgetten** met automatische pauze per creator of campagne waar dat nodig is, naast het farm-brede maandbudget.
+4. Verzoeken van admins verschijnen onder **Settings → Approvals**; alleen de owner beslist.
 
 ## Overige configuratie (staat al in de documentatie)
 

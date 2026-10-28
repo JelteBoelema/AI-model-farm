@@ -26,6 +26,7 @@ import { PlatformError, type PostMedia, type PublishFormat } from "../platforms/
 import { enqueue } from "../queue/queues";
 import { storage } from "../storage";
 import { accountTokens, markTokenExpired } from "./social";
+import { attemptsFor, effectivePolicy } from "./policy";
 import type { ActingUser } from "./users";
 
 const LIVE: PublishingStatus[] = ["SCHEDULED", "QUEUED", "PUBLISHING", "AWAITING_CONFIRMATION", "PUBLISHED", "FAILED", "NEEDS_MANUAL_ACTION"];
@@ -78,8 +79,8 @@ export interface Conflict {
 /** Hard scheduling conflicts on an account: daily limit and minimum gap, in the creator's time zone. */
 export async function conflictsFor(account: Account, at: Date, excludeJobId?: string): Promise<Conflict[]> {
   const tz = account.creator.timezone;
-  const policy = await db.autonomyPolicy.findFirst({ where: { scope: "GLOBAL" }, select: { maxPostsPerDay: true } });
-  const limit = Math.min(account.maxPostsPerDay, policy?.maxPostsPerDay ?? Number.POSITIVE_INFINITY);
+  const policy = await effectivePolicy({ creatorId: account.creatorId });
+  const limit = Math.min(account.maxPostsPerDay, policy.maxPostsPerDay ?? Number.POSITIVE_INFINITY);
   const around = await db.publishingJob.findMany({
     where: {
       socialAccountId: account.id,
@@ -462,7 +463,8 @@ export async function runPublishJob(data: PublishJobData, attemptsMade: number, 
     if (!(err instanceof PlatformError)) logger.error({ jobId: job.id, err: (err as Error).message }, "publishing failed");
     if (job.status === "PUBLISHING") await setJob(job, "FAILED", { lastError: { kind: err instanceof PlatformError ? err.kind : "internal", message } });
     const failed = (await db.publishingJob.findUniqueOrThrow({ where: { id: job.id } }))!;
-    if (failed.status === "FAILED" && failed.attempt < MAX_PUBLISH_ATTEMPTS && attemptsMade + 1 < MAX_PUBLISH_ATTEMPTS) {
+    const maxAttempts = attemptsFor(MAX_PUBLISH_ATTEMPTS, await effectivePolicy({ creatorId: item.creatorId, campaignId: item.campaignId }));
+    if (failed.status === "FAILED" && failed.attempt < maxAttempts && attemptsMade + 1 < maxAttempts) {
       await setJob(failed, "QUEUED");
       const delay = err instanceof PlatformError && err.options.retryAfterMs ? err.options.retryAfterMs : 30_000 * 2 ** failed.attempt;
       await queuePublish(job.id, `retry${failed.attempt}`, delay);

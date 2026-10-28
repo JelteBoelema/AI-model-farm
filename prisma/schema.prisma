@@ -178,6 +178,7 @@ enum ApprovalSubject {
   PROMPT_VERSION
   SOCIAL_ACCOUNT_LINK
   BUDGET_INCREASE
+  POLICY_CHANGE
   SECURITY_CHANGE
 }
 
@@ -277,6 +278,8 @@ model User {
   name         String
   passwordHash String    @map("password_hash")
   role         UserRole  @default(VIEWER)
+  // Service identity (the autopilot): never signs in, acts with actor type AGENT.
+  isSystem     Boolean   @default(false) @map("is_system")
   disabledAt   DateTime? @map("disabled_at") @db.Timestamptz(3)
   lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(3)
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -576,30 +579,32 @@ model CampaignCreator {
 }
 
 model ContentItem {
-  id              String        @id @default(uuid()) @db.Uuid
-  creatorId       String        @map("creator_id") @db.Uuid
-  campaignId      String?       @map("campaign_id") @db.Uuid
-  title           String
-  format          ContentFormat
-  status          ContentStatus @default(IDEA)
-  idea            String        @default("")
-  brief           Json          @default("{}")
-  script          Json          @default("{}")
-  caption         String        @default("")
-  hashtags        String[]
-  aiDisclosure    Boolean       @default(true) @map("ai_disclosure")
-  maxGenerations  Int           @default(6) @map("max_generations")
-  generationCount Int           @default(0) @map("generation_count")
-  batchId         String?       @map("batch_id") @db.Uuid
+  id                  String        @id @default(uuid()) @db.Uuid
+  creatorId           String        @map("creator_id") @db.Uuid
+  campaignId          String?       @map("campaign_id") @db.Uuid
+  title               String
+  format              ContentFormat
+  status              ContentStatus @default(IDEA)
+  idea                String        @default("")
+  brief               Json          @default("{}")
+  script              Json          @default("{}")
+  caption             String        @default("")
+  hashtags            String[]
+  aiDisclosure        Boolean       @default(true) @map("ai_disclosure")
+  maxGenerations      Int           @default(6) @map("max_generations")
+  generationCount     Int           @default(0) @map("generation_count")
+  batchId             String?       @map("batch_id") @db.Uuid
   // Pipeline step that failed last (resume restarts there) and the reason shown to operators.
-  failedStep      String?       @map("failed_step")
-  lastError       String?       @map("last_error")
-  qualityReport   Json?         @map("quality_report")
-  qualityScore    Float?        @map("quality_score")
-  isDemo          Boolean       @default(false) @map("is_demo")
-  createdById     String?       @map("created_by_id") @db.Uuid
-  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  failedStep          String?       @map("failed_step")
+  // When production was last (re)started; the workflow-duration limit is measured from here.
+  productionStartedAt DateTime?     @map("production_started_at") @db.Timestamptz(3)
+  lastError           String?       @map("last_error")
+  qualityReport       Json?         @map("quality_report")
+  qualityScore        Float?        @map("quality_score")
+  isDemo              Boolean       @default(false) @map("is_demo")
+  createdById         String?       @map("created_by_id") @db.Uuid
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   creator            Creator             @relation(fields: [creatorId], references: [id], onDelete: Restrict)
   campaign           Campaign?           @relation(fields: [campaignId], references: [id], onDelete: SetNull)
@@ -906,6 +911,10 @@ model AutonomyPolicy {
   maxWorkflowMinutes    Int?        @map("max_workflow_minutes")
   maxRetries            Int?        @map("max_retries")
   requireHumanApproval  Boolean     @default(false) @map("require_human_approval")
+  // Autopilot may approve content itself only when quality control scored at least this (null: never).
+  autoApproveMinScore   Int?        @map("auto_approve_min_score")
+  // Content items the autopilot may start per creator per day.
+  maxNewItemsPerDay     Int?        @map("max_new_items_per_day")
   updatedById           String?     @map("updated_by_id") @db.Uuid
   createdAt             DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -987,6 +996,8 @@ model Notification {
   title     String
   body      String               @default("")
   link      String?
+  // Same key = same event: a repeated warning (e.g. budget at 80% this month) is stored once.
+  dedupeKey String?              @unique @map("dedupe_key")
   readAt    DateTime?            @map("read_at") @db.Timestamptz(3)
   createdAt DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
 

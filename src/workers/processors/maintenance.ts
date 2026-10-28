@@ -9,6 +9,7 @@ import { markStepFailed } from "@/server/services/content-pipeline";
 import type { PipelineStep } from "@/lib/content-pipeline";
 import { dispatchDuePublications } from "@/server/services/publishing";
 import { refreshExpiringTokens } from "@/server/services/social";
+import { runAutopilot } from "@/server/services/autopilot";
 
 export const GENERATION_KIND_QUEUE: Record<GenerationKind, QueueName> = {
   TEXT: "generation-text",
@@ -100,6 +101,7 @@ export const maintenanceProcessors = {
   "jobs.detect-stuck": async () => detectStuckJobs(),
   "publishing.dispatch": async () => dispatchDuePublications(),
   "social.refresh-tokens": async () => refreshExpiringTokens(),
+  "autopilot.run": async () => runAutopilot(),
 };
 
 export const MAINTENANCE_SCHEDULES = [
@@ -107,4 +109,5 @@ export const MAINTENANCE_SCHEDULES = [
   { id: "jobs-detect-stuck", jobName: "jobs.detect-stuck", everyMs: 2 * 60_000 },
   { id: "publishing-dispatch", jobName: "publishing.dispatch", everyMs: 60_000 },
   { id: "social-refresh-tokens", jobName: "social.refresh-tokens", everyMs: 6 * 60 * 60_000 },
+  { id: "autopilot-run", jobName: "autopilot.run", everyMs: 30 * 60_000 },
 ] as const;

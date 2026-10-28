@@ -50,11 +50,12 @@ import { assembleVideo, extractFrame, FfmpegError, probe } from "../media/ffmpeg
 import { createAdapter, parseConfig, selectProvider } from "../providers/registry";
 import { ProviderError, type GenerationRequest, type ReferenceImage } from "../providers/types";
 import { enqueue } from "../queue/queues";
-import type { QueueName } from "../queue/definitions";
+import { QUEUES, type QueueName } from "../queue/definitions";
 import { storage } from "../storage";
 import { abandonGeneration, ChargedProviderError, executeGeneration, pollGeneration, submitGeneration, type ExecuteResult } from "./generation";
 import { canonicalReferences, storeGeneratedImage, storeMedia } from "./media";
 import { renderVersion, resolvePromptVersion } from "./prompts";
+import { attemptsFor, effectivePolicy } from "./policy";
 import { BudgetBlockedError } from "./spend-guard";
 
 const QUEUE_FOR_STEP: Record<PipelineStep, QueueName> = {
@@ -185,11 +186,43 @@ function jobData(j: NewJob): Prisma.GenerationJobUncheckedCreateInput {
   };
 }
 
-async function queueJob(job: Pick<GenerationJob, "id" | "step" | "idempotencyKey" | "status" | "attempt">, opts: { suffix?: string; delayMs?: number } = {}) {
-  if (job.status !== "QUEUED" && !opts.suffix?.startsWith("poll")) return;
-  // Resumed jobs and polls get a new queue id: earlier copies may still exist in the queue's history.
+async function queueJob(job: Pick<GenerationJob, "id" | "step" | "idempotencyKey" | "status" | "attempt" | "creatorId">, opts: { suffix?: string; delayMs?: number } = {}) {
+  if (job.status !== "QUEUED" && !opts.suffix?.startsWith("poll") && !opts.suffix?.startsWith("wait")) return;
+  // Resumed jobs, polls and deferred jobs get a new queue id: earlier copies may still exist in the queue's history.
   const key = opts.suffix ? `${job.idempotencyKey}:${opts.suffix}` : job.idempotencyKey;
-  await enqueue(QUEUE_FOR_STEP[job.step as PipelineStep], "content.step", { jobId: job.id } satisfies ContentStepJob, { idempotencyKey: key, ...(opts.delayMs ? { delay: opts.delayMs } : {}) });
+  const queue = QUEUE_FOR_STEP[job.step as PipelineStep];
+  // The policy's retry limit caps the queue's attempts.
+  const attempts = attemptsFor(QUEUES[queue].attempts, await effectivePolicy({ creatorId: job.creatorId }));
+  await enqueue(queue, "content.step", { jobId: job.id } satisfies ContentStepJob, { idempotencyKey: key, attempts, ...(opts.delayMs ? { delay: opts.delayMs } : {}) });
+}
+
+/** How long a job waits before trying again when the concurrency limit is reached. */
+export const CONCURRENCY_WAIT_MS = 15_000;
+
+/**
+ * Policy checks before a step runs. Returns "wait" when the concurrency limit is reached (the job
+ * is deferred, not failed); throws a PolicyBlockedError when a hard limit stops the chain.
+ */
+async function checkPolicy(item: ContentItem, step: PipelineStep): Promise<"run" | "wait"> {
+  const policy = await effectivePolicy({ creatorId: item.creatorId, campaignId: item.campaignId });
+  if (policy.maxWorkflowMinutes !== null && item.productionStartedAt) {
+    const minutes = (Date.now() - item.productionStartedAt.getTime()) / 60_000;
+    if (minutes > policy.maxWorkflowMinutes)
+      throw new PolicyBlockedError(`Production of this item ran for ${Math.round(minutes)} minutes, over the ${policy.maxWorkflowMinutes}-minute workflow limit (${(policy.source.maxWorkflowMinutes ?? "GLOBAL").toLowerCase()} policy)`);
+  }
+  if (policy.maxConcurrentJobs !== null && step !== "assemble") {
+    const scoped = policy.source.maxConcurrentJobs === "CREATOR" ? { creatorId: item.creatorId } : policy.source.maxConcurrentJobs === "CAMPAIGN" ? { contentItem: { campaignId: item.campaignId } } : {};
+    const running = await db.generationJob.count({ where: { status: "RUNNING", providerJobId: null, ...scoped } });
+    if (running >= policy.maxConcurrentJobs) return "wait";
+  }
+  return "run";
+}
+
+export class PolicyBlockedError extends DomainError {
+  constructor(message: string) {
+    super(message);
+    this.name = "PolicyBlockedError";
+  }
 }
 
 /** Creates the job row unless the key exists already (idempotent), then queues it. */
@@ -248,8 +281,8 @@ async function scheduleTextStep(item: ItemWithCampaign, step: "brief" | "script"
 }
 
 async function generationLimit(item: ContentItem): Promise<number> {
-  const autonomy = await db.autonomyPolicy.findFirst({ where: { scope: "GLOBAL" }, select: { maxGenerationsPerItem: true } });
-  return Math.min(item.maxGenerations, autonomy?.maxGenerationsPerItem ?? Number.POSITIVE_INFINITY);
+  const policy = await effectivePolicy({ creatorId: item.creatorId, campaignId: item.campaignId });
+  return Math.min(item.maxGenerations, policy.maxGenerationsPerItem ?? Number.POSITIVE_INFINITY);
 }
 
 interface PlannedTake {
@@ -485,6 +518,7 @@ function classify(err: unknown): { kind: string; message: string; retryable: boo
   if (err instanceof ProviderError) return { kind: err.kind, message: err.message, retryable: err.retryable };
   if (err instanceof BudgetBlockedError) return { kind: "blocked_budget", message: err.message, retryable: false };
   if (err instanceof PausedError) return { kind: "paused", message: err.message, retryable: false };
+  if (err instanceof PolicyBlockedError) return { kind: "policy", message: err.message, retryable: false };
   if (err instanceof DomainError) return { kind: "invalid", message: err.message, retryable: false };
   if (err instanceof FfmpegError) return { kind: "media", message: err.message, retryable: false };
   return { kind: "internal", message: "Internal error while running the step", retryable: true };
@@ -600,6 +634,20 @@ export async function runContentStepJob(job: Pick<Job<ContentStepJob>, "data" | 
   }
 
   const polling = gen.status === "RUNNING" && !!gen.providerJobId;
+  if (!polling && gen.status === "QUEUED") {
+    try {
+      if ((await checkPolicy(item, step)) === "wait") {
+        await queueJob(gen, { suffix: `wait${Date.now()}`, delayMs: CONCURRENCY_WAIT_MS });
+        return { deferred: "concurrency" };
+      }
+    } catch (err) {
+      if (!(err instanceof PolicyBlockedError)) throw err;
+      assertTransition("generationJob", "QUEUED", "BLOCKED_POLICY");
+      await db.generationJob.update({ where: { id: gen.id }, data: { status: "BLOCKED_POLICY", error: { kind: "policy", message: err.message }, finishedAt: new Date() } });
+      await markStepFailed(item.id, step, err.message);
+      throw new UnrecoverableError(err.message);
+    }
+  }
   const attempt = polling ? gen.attempt : gen.attempt + 1;
   if (gen.status === "QUEUED") assertTransition("generationJob", "QUEUED", "RUNNING");
   if (!polling) await db.generationJob.update({ where: { id: gen.id }, data: { status: "RUNNING", attempt, startedAt: gen.startedAt ?? new Date() } });
@@ -709,7 +757,7 @@ export async function runContentStepJob(job: Pick<Job<ContentStepJob>, "data" | 
     const c = classify(err);
     if (err instanceof ChargedProviderError && err.costMicros !== null) spent += err.costMicros;
     const final = !c.retryable || job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
-    const status = c.kind === "blocked_budget" ? "BLOCKED_BUDGET" : c.kind === "paused" ? "BLOCKED_POLICY" : final ? "FAILED" : polling ? "RUNNING" : "QUEUED";
+    const status = c.kind === "blocked_budget" ? "BLOCKED_BUDGET" : c.kind === "paused" || c.kind === "policy" ? "BLOCKED_POLICY" : final ? "FAILED" : polling ? "RUNNING" : "QUEUED";
     if (status === "QUEUED") assertTransition("generationJob", "FAILED", "QUEUED");
     else if (status !== "RUNNING") assertTransition("generationJob", "RUNNING", status);
     if (c.kind === "internal") logger.error({ jobId: gen.id, err: (err as Error).message }, "content step failed");

@@ -16,7 +16,7 @@ Bron: `prisma/schema.prisma` en `prisma/migrations/*/migration.sql`. Alle 17 ver
 
 | Tabel | Doel | Belangrijke regels |
 |---|---|---|
-| `users` | Operators met rol `OWNER/ADMIN/OPERATOR/VIEWER` | e-mail uniek (lowercase), bcrypt-hash, `disabled_at` |
+| `users` | Operators met rol `OWNER/ADMIN/OPERATOR/VIEWER`, plus de service-identiteit van de autopilot (`is_system`) | e-mail uniek (lowercase), bcrypt-hash, `disabled_at`; een systeemgebruiker is altijd uitgeschakeld (check `users_system_disabled`) |
 | `creators` | Virtuele creator: niche, doelgroep, taal, regio's, persoonlijkheid, fictief verhaal, pijlers, formats, promptinstellingen, schema, tijdzone, autonomiemodus | `slug` uniek; status-machine `DRAFT→ACTIVE⇄PAUSED→ARCHIVED` |
 | `character_profiles` | Geversioneerde visuele identiteit: uiterlijk (JSON), identiteitsprompt, negatieve prompt, consistentiestrategie, likeness-attestatie | `(creator_id, version)` uniek; **max. één `APPROVED` per creator** (partiële index) |
 | `character_references` | Canonieke referentiebeelden per profielversie | koppelt naar `media_assets` met `RESTRICT` |
@@ -27,22 +27,22 @@ Bron: `prisma/schema.prisma` en `prisma/migrations/*/migration.sql`. Alle 17 ver
 | `campaign_prompt_pins` | Campagne pint één gepubliceerde versie per template | PK `(campaign_id, template_id)` |
 | `ai_providers` | Providerregister: capabilities, status (`NOT_CONFIGURED/ACTIVE/DEGRADED/DISABLED`), mock-vlag, prijstabel, prioriteit | lege prijstabel ⇒ betaald gebruik geblokkeerd |
 | `campaigns` + `campaign_creators` | Campagnes over meerdere creators | n:m |
-| `content_items` | Eén publiceerbaar stuk content door de pipeline: idee, brief, shotlist (`script.shots`), caption, hashtags, QC-rapport en -score, mislukte stap + reden | status-machine; `generation_count ≤ max_generations` (check) |
+| `content_items` | Eén publiceerbaar stuk content door de pipeline: idee, brief, shotlist (`script.shots`), caption, hashtags, QC-rapport en -score, mislukte stap + reden, start van de productie (voor de workflowduur) | status-machine; `generation_count ≤ max_generations` (check) |
 | `content_batches` | Set items die samen zijn aangemaakt en geproduceerd | items houden hun batch (`SET NULL` bij verwijderen) |
 | `video_scenes` | Storyboard: volgorde, beeldprompt, actie, duur, voice-overtekst (`dialogue`), schermtekst (`audio_notes`), goedgekeurde clip | `(content_item_id, position)` uniek; duur > 0 |
 | `generation_jobs` | Eén pipelinestap (`step`) of generatie: provider, promptversie, gerenderde prompt, parameters, provider-request-ID, pogingen, gestructureerde output, werkelijke kosten + basis, fout | `idempotency_key` uniek; pogingen 1–10; kosten alleen met basis (check); `provider_id` alleen leeg voor lokale `MEDIA_PROCESSING` (check) |
 | `media_assets` | Opgeslagen bestand + volledige herkomst (prompt, provider, modelversie, parameters, kwaliteit, rechten); `shot_index` voor content-takes | `storage_key` uniek; checksum-formaat; **max. één goedgekeurde take per shot en soort** (partiële index; een scène heeft een clip én een voice-over); eindvideo = `VIDEO` + `DERIVED` zonder `shot_index`, ondertitels = `SUBTITLE` |
-| `approvals` | Menselijke beslissingen: content, media, karakter, promptversie, accountkoppeling, budgetverhoging, securitywijziging | `payload` bevat het voorstel |
+| `approvals` | Menselijke beslissingen: content, media, karakter, promptversie, accountkoppeling, budgetverhoging, versoepeling van autonomiebeleid (`POLICY_CHANGE`), securitywijziging | `payload` bevat het voorstel, de samenvatting en de oude waarde (verouderde verzoeken worden geweigerd) |
 | `publishing_jobs` | Eén publicatie van een item op een account: momentopname van media-ID's en caption, platformvoortgang (`remote_state`: container-ID's, publicatiepoging), pogingen, laatste fout | `idempotency_key` uniek; **max. één niet-geannuleerde job per item+account**; `(platform, external_post_id)` uniek |
 | `mock_platform_posts` | Wat het mock-platform "publiceerde" (mock feed) | `external_post_id` uniek |
 | `cost_ledger` | **Append-only** kostenjournaal | trigger blokkeert UPDATE/DELETE/TRUNCATE; `idempotency_key` uniek; `ESTIMATED` vereist `uncertainty_note`; `CHARGE ≥ 0` |
 | `budget_reservations` | Gereserveerd budget per job (`HELD→CONSUMED/RELEASED`) | bedrag > 0; `expires_at` |
 | `budget_policies` | Harde limieten per scope (globaal/creator/campagne/provider) en periode (dag/maand) | uniek per scope+target+periode; target verplicht behalve bij globaal |
-| `autonomy_policies` | Kosten per job, generaties per item, gelijktijdige jobs, posts/dag, workflowduur, retries, verplichte goedkeuring | uniek per scope+target |
+| `autonomy_policies` | Kosten per job, generaties per item, gelijktijdige jobs, posts/dag, workflowduur, retries, verplichte goedkeuring, autopilot: nieuwe items per dag en minimale QC-score voor zelfgoedkeuring | uniek per scope+target; waarden binnen veilige grenzen (check `autonomy_policies_values_sane`) |
 | `control_switches` | Kill switches (`ALL_GENERATION`, `ALL_PUBLISHING`, `CREATOR`, `CAMPAIGN`, `PROVIDER`) | uniek per scope+target |
 | `analytics_snapshots` | Tijdgestempelde meting met bron en ruwe respons | per account/item/tijd geïndexeerd |
 | `audit_logs` | **Append-only** audittrail: actor (user/system/agent), actie, entiteit, metadata, IP, user agent | trigger blokkeert UPDATE/DELETE/TRUNCATE; secrets worden vóór opslag geschrapt |
-| `notifications` | Meldingen aan een gebruiker of iedereen | — |
+| `notifications` | Meldingen aan een gebruiker of iedereen | `dedupe_key` uniek (één melding per budget per periode) |
 
 ## Relaties
 

@@ -15,6 +15,7 @@ import { connectAdapter, platformAdapter } from "../platforms/registry";
 import { PlatformError, type Inspection, type PlatformAccount, type TokenSet } from "../platforms/types";
 import { redis } from "../redis";
 import { deleteSecret, requireSecret, storeSecret } from "../secrets";
+import { assertHuman, effectivePolicy } from "./policy";
 import type { ActingUser } from "./users";
 
 const STATE_TTL_SECONDS = 600;
@@ -44,6 +45,7 @@ export const startConnectSchema = z.object({ creatorId: z.string().uuid(), platf
 
 /** Starts the OAuth flow; returns the URL to send the browser to. */
 export async function startConnect(by: ActingUser, raw: z.input<typeof startConnectSchema>, origin: string) {
+  assertHuman(by.actor);
   require(by, "social:connect");
   const input = startConnectSchema.parse(raw);
   const creator = await db.creator.findUnique({ where: { id: input.creatorId }, select: { status: true } });
@@ -140,6 +142,7 @@ export async function completeConnect(by: ActingUser, p: { platform: Platform; s
 
 /** Owner decision on a pending link. Rejecting removes the stored tokens. */
 export async function decideConnection(by: ActingUser, accountId: string, approve: boolean, reasonRaw = "") {
+  assertHuman(by.actor);
   require(by, "social:approve");
   const reason = z.string().trim().max(500).parse(reasonRaw);
   const account = await db.socialAccount.findUnique({ where: { id: accountId } });
@@ -212,10 +215,11 @@ export async function refreshExpiringTokens(now = new Date()) {
 export const limitsSchema = z.object({ maxPostsPerDay: z.coerce.number().int().min(1).max(50), minGapMinutes: z.coerce.number().int().min(0).max(1440) });
 
 export async function updateAccountLimits(by: ActingUser, accountId: string, raw: z.input<typeof limitsSchema>) {
+  assertHuman(by.actor);
   require(by, "social:connect");
   const input = limitsSchema.parse(raw);
-  const policy = await db.autonomyPolicy.findFirst({ where: { scope: "GLOBAL" }, select: { maxPostsPerDay: true } });
-  if (policy?.maxPostsPerDay && input.maxPostsPerDay > policy.maxPostsPerDay) throw new DomainError(`The farm-wide limit is ${policy.maxPostsPerDay} posts per day per account`);
+  const policy = await effectivePolicy({ creatorId: (await db.socialAccount.findUnique({ where: { id: accountId }, select: { creatorId: true } }))?.creatorId });
+  if (policy.maxPostsPerDay !== null && input.maxPostsPerDay > policy.maxPostsPerDay) throw new DomainError(`The autonomy policy allows at most ${policy.maxPostsPerDay} posts per day per account`);
   const before = await db.socialAccount.findUnique({ where: { id: accountId } });
   if (!before) throw new DomainError("Account not found");
   await db.socialAccount.update({ where: { id: accountId }, data: input });
