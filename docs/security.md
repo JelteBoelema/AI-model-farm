@@ -49,6 +49,9 @@ Wijzigingen die expliciete toestemming vereisen (nieuwe externe accountkoppeling
 - Platformsecrets (`DATABASE_URL`, `AUTH_SECRET`, `APP_ENCRYPTION_KEY`, …) worden door ECS uit Secrets Manager in de container gezet; nooit in images of task-definities als platte tekst.
 - OAuth-tokens van socialmedia-accounts (fase 7) worden als afzonderlijk secret per account opgeslagen (`aws-sm:creatorfarm/prod/social/<accountId>`), met IAM-beleid dat alleen de publishing-worker leestoegang geeft.
 - `APP_ENCRYPTION_KEY` (AES-256-GCM, `src/server/crypto.ts`) is beschikbaar voor waarden die wij zelf moeten versleutelen; associated data koppelt een ciphertext aan zijn context.
+- De Anthropic-client gebruikt een vaste basis-URL (`https://api.anthropic.com`): een `ANTHROPIC_BASE_URL` in de omgeving kan verkeer met de API-sleutel niet omleiden.
+- Een `auth`- of `quota`-fout van een provider pauzeert die provider automatisch en stuurt een kritieke melding; hervatten is een bewuste actie van een admin.
+- Prijslijsten en providerinstellingen wijzigen kan alleen een admin (`providers:manage`) en wordt geaudit.
 - Rotatie: `AUTH_SECRET` roteren logt iedereen uit; provider-keys roteren in Secrets Manager, cache verloopt binnen 5 minuten.
 
 ## Uploads (referentiebeelden)

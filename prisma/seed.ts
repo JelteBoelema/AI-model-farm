@@ -3,7 +3,7 @@
 
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "../src/server/auth/password";
-import { syncProviderRegistry } from "../src/server/providers/catalog";
+import { syncProviderRegistry } from "../src/server/providers/registry";
 import { toMicros } from "../src/lib/money";
 import { STARTER_PROMPTS } from "./starter-prompts";
 

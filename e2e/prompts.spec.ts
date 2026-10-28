@@ -32,9 +32,10 @@ test("template → validate → test → publish → new version with diff → p
   await page.getByRole("button", { name: "Preview" }).click();
   await expect(page.getByLabel("Rendered prompt")).toHaveText("Caption for Milo Moves about morning mobility.");
   await page.getByRole("button", { name: "Run test" }).click();
-  await expect(page.getByText("Test run completed")).toBeVisible();
+  await expect(page.getByText("Test run queued")).toBeVisible();
+  // executed by the generation worker; the panel refreshes until it completes
   const comparison = page.getByLabel("Comparison");
-  await expect(comparison.getByText(/\[Mock caption output/)).toBeVisible();
+  await expect(comparison.getByText(/\[Mock caption output/)).toBeVisible({ timeout: 20_000 });
 
   // Publish v1
   await page.getByRole("button", { name: "Publish v1" }).click();

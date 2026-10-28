@@ -1,6 +1,6 @@
 # Providerstrategie
 
-Alle AI-diensten zitten achter één contract: `ProviderAdapter` in `src/server/providers/types.ts`. De Content Factory kent geen vendor-SDK's. Providers staan in het register (`ai_providers`, beheer via **AI Providers**) en zijn pas bruikbaar als **(1)** de adapter bestaat, **(2)** de credential via de secrets store resolveert en **(3)** er een prijstabel is. Ontbreekt één van de drie, dan is de status `NOT_CONFIGURED` en wordt er niets betaald uitgevoerd.
+Alle AI-diensten zitten achter één contract: `ProviderAdapter` in `src/server/providers/types.ts`. De Content Factory kent geen vendor-SDK's. Providers staan in het register (`ai_providers`, beheer via **AI Providers**) en zijn pas bruikbaar als **(1)** de adapter bestaat, **(2)** de credential via de secrets store resolveert en **(3)** er een prijstabel is. Daarnaast moet de provider zijn ingeschakeld, een model hebben en moet een **live verbindingstest** voor dat model geslaagd zijn. Ontbreekt iets, dan is de status `NOT_CONFIGURED` en wordt er niets betaald uitgevoerd.
 
 > **Let op:** providerlandschap, modellen, prijzen en API-voorwaarden veranderen snel. De kandidaten hieronder zijn gebaseerd op de kennis bij het schrijven en worden in fase 4/6/7 **opnieuw geverifieerd** tegen de actuele documentatie, prijslijsten en licentievoorwaarden voordat er een adapter wordt gebouwd. Prijzen worden nooit uit dit document overgenomen, alleen uit de officiële prijslijst op het moment van integratie.
 
@@ -9,14 +9,14 @@ Alle AI-diensten zitten achter één contract: `ProviderAdapter` in `src/server/
 ```ts
 interface ProviderAdapter {
   key: string; isMock: boolean;
-  discoverCapabilities(signal): Promise<ModelCapability[]>; // modellen, ratio's, max duur, referenties, commercieel gebruik
+  discoverCapabilities(signal): Promise<ModelCapability[]>; // gebruikt door de verbindingstest
   validate(request): void;                                  // gooit invalid_input vóór er geld wordt uitgegeven
-  estimateCost(request): Promise<CostEstimate>;              // maxMicros: bigint | null  (null = onbekend ⇒ blokkeren)
-  submit(request, signal): Promise<GenerationStatus>;        // async: pending + providerJobId
-  getStatus(providerJobId, signal): Promise<GenerationStatus>; // polling, ook om timeouts op te lossen
-  cancel?(providerJobId): Promise<void>;
+  estimate(request): CostEstimate;                          // bovengrens van het verbruik per prijseenheid
+  generate(request, signal): Promise<GenerationResult>;     // outputs + verbruik per poging + servedBy
 }
 ```
+
+Video-adapters (fase 6) krijgen een asynchrone variant (indienen + status opvragen).
 
 Foutclassificatie (`ProviderError.kind`) bepaalt het gedrag van de worker:
 
@@ -25,10 +25,10 @@ Foutclassificatie (`ProviderError.kind`) bepaalt het gedrag van de worker:
 | `invalid_input`, `content_policy` | niet opnieuw proberen; item naar review |
 | `rate_limited` | vertragen met `retryAfterMs`, telt niet als mislukte poging |
 | `transient` | retry met jitter-backoff |
-| `timeout` | **eerst `getStatus()`**, pas daarna eventueel opnieuw indienen |
+| `timeout` | conservatieve raming boeken (`ESTIMATED`); bij async providers eerst status opvragen |
 | `auth`, `quota_exceeded` | provider automatisch pauzeren (`control_switch`) + melding |
 
-Elke adapterimplementatie krijgt contracttests die met opgenomen (geanonimiseerde) responses draaien, plus een opt-in live smoketest (`LIVE_PROVIDER_TESTS=1`) die nooit in CI draait.
+Elke adapterimplementatie krijgt contracttests die met opgenomen (geanonimiseerde) responses draaien, plus een handmatige live smoketest (`pnpm test:live --yes`) die nooit in CI draait.
 
 ## Selectiecriteria
 
@@ -53,6 +53,12 @@ Een provider wordt pas gekozen na een gedocumenteerde evaluatie op:
 | Lip-sync | Te evalueren in fase 6 | — | Alleen als een provider aan kwaliteits- en licentie-eisen voldoet. |
 | Moderatie / QC | Claude (vision) met vaste rubric + technische checks (FFmpeg) | — | Zelfde provider als tekst houdt het aantal verwerkers klein. |
 
+## Status fase 4
+
+- **Anthropic Claude** — officiële SDK. Standaard `claude-opus-5-5`, bulk `claude-haiku-5-5`. Thinking staat altijd aan (geen thinking-config meesturen); `effort` per provider instelbaar. Voor niet-Haiku-modellen staat de server-side fallback bij weigeringen aan (`fallbacks: "default"`): als het model weigert, kan een ander Claude-model het verzoek afmaken. Elke poging wordt apart afgerekend (`usage.iterations`) en de UI toont welk model antwoordde. Retries doet BullMQ, niet de SDK.
+- **OpenAI Images** — REST (`/v1/images/generations`, met referenties `/v1/images/edits`). Standaardmodel `gpt-image-2` (instelbaar). Volgens openbare bronnen is `gpt-image-1` op 23-10-2026 uitgefaseerd; de officiële documentatie (developers.openai.com) was vanuit de bouwomgeving niet bereikbaar, dus modelnaam, parameters en responsvorm zijn **nog niet live geverifieerd**. De verbindingstest en `pnpm test:live` doen dat zodra er een sleutel is.
+- **Black Forest Labs FLUX** — fallbackkandidaat voor beeld; adapter pas na de consistentiebenchmark (fase 10).
+
 ## Fallbackbeleid
 
 - Fallback alleen naar een provider met **dezelfde capability** én die de **identiteitsdrempel** van het karakterprofiel haalt (consistentiescore ≥ ingestelde drempel op de canonieke referenties).
@@ -62,7 +68,7 @@ Een provider wordt pas gekozen na een gedocumenteerde evaluatie op:
 ## Kosten per provider
 
 - `ai_providers.pricing` bevat per model en eenheid de prijs (micro-EUR) met bron-URL en datum.
-- `estimateCost()` gebruikt de **bovengrens** (max tokens, max duur). Rapporteert de provider na afloop het verbruik, dan wordt `PROVIDER_REPORTED` geboekt; anders `ESTIMATED` met onzekerheidsnotitie.
+- `estimateCost()` gebruikt de **bovengrens** (max tokens, max duur). Rapporteert de provider na afloop het verbruik, dan wordt `MEASURED` geboekt; anders `ESTIMATED` met onzekerheidsnotitie.
 - Valutaconversie (USD-prijzen) via een vaste, maandelijks bijgewerkte koers met marge; vermeld in de notitie.
 
 ## Mockproviders
@@ -71,7 +77,7 @@ Een provider wordt pas gekozen na een gedocumenteerde evaluatie op:
 
 - staan als `is_mock = true` in het register en zetten `is_mock` op jobs, media, kosten en publicaties;
 - produceren deterministische, **zichtbaar gelabelde** output (watermerk "MOCK" in beeld en video);
-- boeken mockkosten apart, zodat het budgetmechanisme volledig testbaar is zonder echte uitgaven;
+- kosten aantoonbaar €0 en worden nooit als uitgave geboekt (prijslijst `free`, alleen voor mocks toegestaan);
 - worden in de UI altijd met een *Mock*-badge getoond en kunnen niet naar een echt socialmedia-account worden gepubliceerd.
 
 `MOCK_MODE=true` (standaard buiten productie) dwingt alle generatie en publicatie naar mockadapters.

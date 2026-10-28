@@ -3,7 +3,8 @@ import { db } from "@/server/db";
 import { toMicros } from "@/lib/money";
 import { checkHealth } from "@/server/health";
 import { getOverview, getSpend } from "@/server/services/dashboard";
-import { syncProviderRegistry, PROVIDER_CATALOG } from "@/server/providers/catalog";
+import { PROVIDER_CATALOG } from "@/server/providers/catalog";
+import { syncProviderRegistry } from "@/server/providers/registry";
 import { makeCreator, uid } from "./helpers";
 
 describe("health", () => {
@@ -36,14 +37,15 @@ describe("spend read model", () => {
 });
 
 describe("provider registry", () => {
-  it("never marks a provider active before its adapter exists", async () => {
-    process.env.ANTHROPIC_API_KEY = "sk-test-present";
+  it("activates mocks and never providers whose adapter is not implemented, even with a key", async () => {
+    process.env.RUNWAY_API_KEY = "rk-test-present";
     await syncProviderRegistry();
     const rows = await db.aiProvider.findMany({ where: { key: { in: PROVIDER_CATALOG.map((c) => c.key) } } });
     expect(rows).toHaveLength(PROVIDER_CATALOG.length);
-    expect(rows.find((r) => r.key === "anthropic")!.status).toBe("NOT_CONFIGURED");
-    expect(rows.every((r) => r.status !== "ACTIVE")).toBe(true);
-    delete process.env.ANTHROPIC_API_KEY;
+    expect(rows.find((r) => r.key === "mock-text")!.status).toBe("ACTIVE");
+    expect(rows.find((r) => r.key === "mock-image")!.status).toBe("ACTIVE");
+    for (const key of ["runway", "google-veo", "elevenlabs", "bfl-flux", "mock-video"]) expect(rows.find((r) => r.key === key)!.status, key).not.toBe("ACTIVE");
+    delete process.env.RUNWAY_API_KEY;
   });
 
   it("preserves an admin's DISABLED status on re-sync", async () => {

@@ -25,6 +25,7 @@ import { cn, formatDateTime, humanize } from "@/lib/utils";
 import { requireUser } from "@/server/auth/session";
 import { db } from "@/server/db";
 import { versionIssues } from "@/server/services/prompts";
+import { storage } from "@/server/storage";
 
 export const metadata: Metadata = { title: "Prompt template" };
 type Props = { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
@@ -59,15 +60,20 @@ export default async function PromptTemplatePage({ params, searchParams }: Props
   const needsAdmin = template.scope === "GLOBAL" || (RULE_KINDS as readonly string[]).includes(template.kind);
   const canPublish = canEdit && can(user.role, needsAdmin ? "prompts:publish" : "prompts:edit");
   const hasDraft = template.versions.some((x) => x.status === "DRAFT");
-  const generates = (TEXT_KINDS as readonly string[]).includes(template.kind);
+  const generates = (TEXT_KINDS as readonly string[]).includes(template.kind) || template.kind === "IMAGE";
 
   const [creators, campaigns, runs] = await Promise.all([
     db.creator.findMany({ where: { status: { not: "ARCHIVED" }, ...(template.creatorId ? { id: template.creatorId } : {}) }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     db.campaign.findMany({ where: { status: { notIn: ["COMPLETED", "ARCHIVED"] }, ...(template.campaignId ? { id: template.campaignId } : {}) }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    db.promptTestRun.findMany({ where: { promptVersion: { templateId: template.id } }, orderBy: { createdAt: "desc" }, take: 20, include: { promptVersion: { select: { version: true } } } }),
+    db.promptTestRun.findMany({
+      where: { promptVersion: { templateId: template.id } },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      include: { promptVersion: { select: { version: true } }, outputMedia: { select: { storageKey: true } } },
+    }),
   ]);
   const creatorNames = new Map(creators.map((c) => [c.id, c.name]));
-  const runViews: TestRunView[] = runs.map((r) => ({
+  const runViews: TestRunView[] = await Promise.all(runs.map(async (r) => ({
     id: r.id,
     version: r.promptVersion.version,
     createdAt: formatDateTime(r.createdAt),
@@ -79,8 +85,15 @@ export default async function PromptTemplatePage({ params, searchParams }: Props
     renderedPrompt: r.renderedPrompt,
     safetyRules: r.safetyRules,
     output: r.output,
-    cost: r.costMicros === null ? "unknown" : formatMoney(r.costMicros, "EUR", 4),
-  }));
+    outputUrl: r.outputMedia ? await storage().previewUrl(r.outputMedia.storageKey) : null,
+    error: r.error,
+    cost:
+      r.status === "QUEUED" || r.status === "RUNNING"
+        ? "pending"
+        : r.costMicros === null
+          ? "unknown"
+          : `${formatMoney(r.costMicros, "EUR", 4)}${r.costBasis === "ESTIMATED" ? " (estimated)" : ""}`,
+  })));
   const diff = previous ? diffLines(previous.body, v.body) : null;
   const pinOptions = campaigns.map((c) => ({ id: c.id, name: c.name, pinnedVersion: template.pins.find((p) => p.campaignId === c.id)?.promptVersion.version ?? null }));
 

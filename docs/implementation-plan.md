@@ -82,11 +82,26 @@ Elke fase eindigt met werkende functionaliteit, groene tests (unit, integratie, 
 - [x] Onveilige templateconstructies worden geweigerd. *(unit)*
 - [x] Viewers zien de Prompt Studio alleen-lezen. *(e2e)*
 
-## Fase 4 — AI Providers
+## Fase 4 — AI Providers ✅ (opgeleverd)
 
-**Inhoud** — adaptercontract implementeren voor Anthropic (tekst), één beeldprovider (na consistentiebenchmark) en mockadapters; capability discovery, validatie, ramingen, async status, foutclassificatie, rate limiting per provider, automatische pauze bij `auth`/`quota`.
+**Inhoud**
+- Eén uitvoerpad voor elke providercall (`src/server/services/generation.ts`): pauzecheck → validatie → raming → budgetbewaking → rate limit → call → kostenboeking.
+- Adapters: **Anthropic Claude** (tekst; standaardmodel `claude-opus-5-5`, bulkmodel `claude-haiku-5-5`, officiële SDK), **OpenAI Images** (beeld, met referentiebeelden via de edit-endpoint; REST) en **mock-tekst/mock-beeld** (deterministisch, beeld met zichtbaar "MOCK"-watermerk).
+- Gereedheid per provider, zichtbaar op **AI Providers**: adapter bestaat, ingeschakeld, model gekozen, credential resolveert, prijslijst compleet én een geslaagde live verbindingstest voor precies dat model. Een modelwijziging maakt de verbindingstest ongeldig.
+- Prijslijsten per model en eenheid (tokens, beeldtokens, per beeld, lange context), in USD met verplichte wisselkoers of in EUR, met bron-URL. Voorinstelling met de Anthropic-lijstprijzen (te controleren op de bronpagina).
+- Foutclassificatie (`invalid_input`, `content_policy`, `auth`, `rate_limited`, `transient`, `timeout`, `quota_exceeded`); `auth` en `quota_exceeded` pauzeren de provider automatisch met een kritieke melding.
+- Rate limiting per provider (Redis, per minuut). Budgetbewaking: zonder farm-breed maandbudget wordt niets betaald uitgevoerd; daarnaast maximum per job en creator-/campagnebudgetten (besteed + gereserveerd + raming).
+- Kosten: gemeten verbruik → `MEASURED`; timeout of ontbrekende prijs → conservatieve raming als `ESTIMATED` met notitie; nooit €0 voor een ontbrekende prijs. Elke poging van een server-side fallback van Claude wordt apart afgerekend. Mockcalls worden nooit als uitgave geboekt.
+- Prompt-testruns draaien nu asynchroon in de worker (wachtrijen `generation-text` / `generation-image`) tegen de geselecteerde provider; beeldtests gebruiken de canonieke referenties van het goedgekeurde karakterprofiel. Gegenereerde beelden worden media-assets in status *ter review*.
+- De creator-wizard gebruikt buiten mock-modus Claude met een JSON-schema.
+- `pnpm test:live --yes`: handmatige smoketest met echte sleutels (een paar cent), draait nooit in CI.
 
-**Acceptatie** — contracttests per adapter; live smoketest met echte credentials (handmatig, gedocumenteerd); provider zonder prijs blijft geblokkeerd; mockoutput is gewatermerkt en gelabeld.
+**Acceptatie** — aangetoond:
+- [x] Contracttests per adapter tegen opgenomen responsevormen, inclusief foutmapping, weigeringen en fallback-afrekening. *(unit)*
+- [x] Een provider zonder prijs, credential of geslaagde verbindingstest blijft geblokkeerd; mock-modus valt nooit terug op een echte provider en andersom. *(integratie)*
+- [x] Budgetbewaking, idempotente kostenboeking, automatische pauze en rate limiting. *(integratie)*
+- [x] Mockoutput is gewatermerkt en gelabeld; testrun via de worker zichtbaar in de UI. *(unit + e2e)*
+- [ ] Live smoketest met echte credentials — wacht op sleutels (zie `docs/open-actions.md`).
 
 ## Fase 5 — Content Factory
 

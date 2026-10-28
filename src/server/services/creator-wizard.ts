@@ -2,8 +2,10 @@
 // the operator reviews and edits before anything is saved. Until the text-provider adapters ship
 // (phase 4) the only generator is a deterministic mock, and every proposal says so.
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import type { AiProvider } from "@prisma/client";
 import {
+  CONTENT_FORMATS,
   creatorBriefSchema,
   creatorProfileSchema,
   characterDraftSchema,
@@ -12,7 +14,10 @@ import {
 } from "@/lib/schemas/creator";
 import { can } from "@/lib/rbac";
 import { recordAudit } from "../audit";
+import { env } from "../env";
 import { DomainError } from "../errors";
+import { selectProvider, type ProviderConfig } from "../providers/registry";
+import { executeGeneration } from "./generation";
 import type { ActingUser } from "./users";
 
 export interface CreatorProposal {
@@ -86,13 +91,127 @@ export const mockProposalGenerator: CreatorProposalGenerator = {
   },
 };
 
-export function getProposalGenerator(): CreatorProposalGenerator {
-  return mockProposalGenerator; // phase 4: select the configured text provider from the registry
+const SYSTEM_PROMPT = `You design fictional virtual creators for a social media studio.
+Rules: the creator is an adult, entirely fictional, and must not resemble, imitate or be named after a real or famous person.
+Write every text field in the language given by the language tag. Be specific and practical; avoid clichés.
+The identityPrompt describes the creator's stable visual identity for image generation (face, hair, build, style) in English.
+The negativePrompt lists what images must avoid.`;
+
+const textField = { type: "string" } as const;
+const PROPOSAL_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["name", "niche", "targetAudience", "personality", "toneOfVoice", "backstory", "contentPillars", "contentFormats", "appearance", "identityPrompt", "negativePrompt"],
+  properties: {
+    name: textField,
+    niche: textField,
+    targetAudience: textField,
+    personality: textField,
+    toneOfVoice: textField,
+    backstory: textField,
+    contentPillars: {
+      type: "array",
+      items: { type: "object", additionalProperties: false, required: ["name", "description"], properties: { name: textField, description: textField } },
+    },
+    contentFormats: { type: "array", items: { type: "string", enum: [...CONTENT_FORMATS] } },
+    appearance: {
+      type: "object",
+      additionalProperties: false,
+      required: ["ageRange", "build", "skinTone", "hair", "eyes", "face", "distinguishingFeatures", "wardrobe"],
+      properties: { ageRange: textField, build: textField, skinTone: textField, hair: textField, eyes: textField, face: textField, distinguishingFeatures: textField, wardrobe: textField },
+    },
+    identityPrompt: textField,
+    negativePrompt: textField,
+  },
+} as const;
+
+interface LlmProposal {
+  name: string;
+  niche: string;
+  targetAudience: string;
+  personality: string;
+  toneOfVoice: string;
+  backstory: string;
+  contentPillars: { name: string; description: string }[];
+  contentFormats: (typeof CONTENT_FORMATS)[number][];
+  appearance: CharacterDraftInput["appearance"];
+  identityPrompt: string;
+  negativePrompt: string;
 }
 
-export async function proposeCreator(by: ActingUser, raw: unknown, generator = getProposalGenerator()): Promise<CreatorProposal> {
+/** Uses the configured text provider (Claude) with structured JSON output. */
+function providerGenerator(provider: AiProvider, config: ProviderConfig): CreatorProposalGenerator {
+  return {
+    key: provider.key,
+    isMock: provider.isMock,
+    async propose({ brief, language, regions }) {
+      const exec = await executeGeneration({
+        provider,
+        config,
+        request: {
+          capability: "TEXT",
+          model: config.model ?? "",
+          system: SYSTEM_PROMPT,
+          prompt: `Language tag: ${language}\nTarget regions: ${regions.join(", ")}\n\nCreative brief:\n${brief}`,
+          maxOutputTokens: 8_000,
+          jsonSchema: PROPOSAL_JSON_SCHEMA as unknown as Record<string, unknown>,
+          params: { effort: "low" },
+        },
+        attribution: {},
+        ledgerKey: `creator-wizard:${randomUUID()}`,
+        purpose: "creator_wizard",
+        signal: AbortSignal.timeout(Math.min(config.timeoutMs, 110_000)),
+      });
+      let data: LlmProposal;
+      try {
+        data = JSON.parse(exec.result.outputs[0]?.text ?? "") as LlmProposal;
+      } catch {
+        throw new DomainError("The provider returned an unreadable proposal; try again");
+      }
+      const clip = (v: string, max: number) => (v ?? "").trim().slice(0, max);
+      return {
+        profile: {
+          name: clip(data.name, 60),
+          niche: clip(data.niche, 160),
+          targetAudience: clip(data.targetAudience, 280),
+          language,
+          targetRegions: regions.length ? regions : ["NL"],
+          personality: clip(data.personality, 500),
+          toneOfVoice: clip(data.toneOfVoice, 280),
+          backstory: clip(data.backstory, 2000),
+          contentPillars: data.contentPillars.slice(0, 8).map((p) => ({ name: clip(p.name, 60), description: clip(p.description, 280) })),
+          contentFormats: [...new Set(data.contentFormats)],
+          timezone: "Europe/Amsterdam",
+          publishingSchedule: {
+            slots: [
+              { platform: "INSTAGRAM", weekday: 2, time: "18:00" },
+              { platform: "INSTAGRAM", weekday: 4, time: "18:00" },
+              { platform: "INSTAGRAM", weekday: 6, time: "11:00" },
+            ],
+          },
+        },
+        character: {
+          appearance: data.appearance,
+          identityPrompt: clip(data.identityPrompt, 2000),
+          negativePrompt: clip(data.negativePrompt, 1000),
+          consistencyStrategy: { referenceWeight: 0.8, seed: null, notes: "" },
+        },
+      };
+    },
+  };
+}
+
+/** Mock mode uses the deterministic mock; otherwise the selected text provider (never a silent mock). */
+export async function getProposalGenerator(): Promise<CreatorProposalGenerator> {
+  if (env().MOCK_MODE) return mockProposalGenerator;
+  const { row, config } = await selectProvider("TEXT");
+  return providerGenerator(row, config);
+}
+
+export async function proposeCreator(by: ActingUser, raw: unknown, generatorOverride?: CreatorProposalGenerator): Promise<CreatorProposal> {
   if (!can(by.role, "creators:edit")) throw new DomainError("You do not have permission for this action.");
   const input = creatorBriefSchema.parse(raw);
+  const generator = generatorOverride ?? (await getProposalGenerator());
   const out = await generator.propose(input);
   // Never trust generator output: it must satisfy the same schemas as manual input.
   const proposal: CreatorProposal = {

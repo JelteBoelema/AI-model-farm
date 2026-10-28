@@ -1,10 +1,9 @@
-// Provider catalog: which AI services the farm knows about and how their credentials are referenced.
-// A provider only becomes ACTIVE when its adapter is implemented AND its credential resolves.
-// Nothing here calls a provider; real adapters are added in phase 4 (text/image) and 6 (video).
+// Provider catalog: which AI services the farm knows about, how their credentials are referenced and
+// their default configuration. Readiness (and therefore ACTIVE status) is decided in registry.ts.
 
-import type { ProviderCapability, ProviderStatus } from "@prisma/client";
-import { db } from "../db";
-import { isSecretConfigured } from "../secrets";
+import type { ProviderCapability } from "@prisma/client";
+import { ANTHROPIC_BULK_MODEL, ANTHROPIC_DEFAULT_MODEL } from "./adapters/anthropic";
+import { OPENAI_IMAGE_DEFAULT_MODEL } from "./adapters/openai-images";
 
 export interface CatalogEntry {
   key: string;
@@ -16,7 +15,11 @@ export interface CatalogEntry {
   adapterPhase: number | null;
   priority: number;
   rationale: string;
+  /** Initial ai_providers.config; admins change it afterwards. */
+  defaultConfig?: Record<string, unknown>;
 }
+
+const MOCK_CONFIG = { model: "mock", maxRequestsPerMinute: 600, timeoutMs: 30_000 };
 
 export const PROVIDER_CATALOG: CatalogEntry[] = [
   {
@@ -25,9 +28,10 @@ export const PROVIDER_CATALOG: CatalogEntry[] = [
     capabilities: ["TEXT", "MODERATION"],
     credentialRef: "env:ANTHROPIC_API_KEY",
     isMock: false,
-    adapterPhase: 4,
+    adapterPhase: null,
     priority: 10,
-    rationale: "Creator wizard, scripts, storyboard reasoning and QC review; smaller Claude models for bulk captions.",
+    rationale: "Creator wizard, scripts, storyboard reasoning and QC review; Claude Haiku for bulk captions.",
+    defaultConfig: { model: ANTHROPIC_DEFAULT_MODEL, bulkModel: ANTHROPIC_BULK_MODEL, effort: "medium", maxRequestsPerMinute: 50, timeoutMs: 120_000 },
   },
   {
     key: "openai-images",
@@ -35,9 +39,10 @@ export const PROVIDER_CATALOG: CatalogEntry[] = [
     capabilities: ["IMAGE"],
     credentialRef: "env:OPENAI_API_KEY",
     isMock: false,
-    adapterPhase: 4,
+    adapterPhase: null,
     priority: 20,
-    rationale: "Image generation and reference-image editing for character consistency.",
+    rationale: "Image generation; edits with the canonical reference images for character consistency.",
+    defaultConfig: { model: OPENAI_IMAGE_DEFAULT_MODEL, imageSize: "1024x1536", imageQuality: "medium", maxRequestsPerMinute: 10, timeoutMs: 180_000 },
   },
   {
     key: "bfl-flux",
@@ -45,9 +50,9 @@ export const PROVIDER_CATALOG: CatalogEntry[] = [
     capabilities: ["IMAGE"],
     credentialRef: "env:BFL_API_KEY",
     isMock: false,
-    adapterPhase: 4,
+    adapterPhase: 10,
     priority: 30,
-    rationale: "Candidate photoreal provider with reference-conditioned editing; evaluated against identity tests.",
+    rationale: "Fallback candidate with reference-conditioned editing; adapter only if it passes the identity benchmark.",
   },
   {
     key: "google-veo",
@@ -85,9 +90,10 @@ export const PROVIDER_CATALOG: CatalogEntry[] = [
     capabilities: ["TEXT", "MODERATION"],
     credentialRef: null,
     isMock: true,
-    adapterPhase: 4,
+    adapterPhase: null,
     priority: 900,
     rationale: "Deterministic output for tests and mock mode. Never presented as real content.",
+    defaultConfig: MOCK_CONFIG,
   },
   {
     key: "mock-image",
@@ -95,9 +101,10 @@ export const PROVIDER_CATALOG: CatalogEntry[] = [
     capabilities: ["IMAGE"],
     credentialRef: null,
     isMock: true,
-    adapterPhase: 4,
+    adapterPhase: null,
     priority: 900,
-    rationale: "Generates labelled placeholder images for the full pipeline in mock mode.",
+    rationale: "Watermarked placeholder images (\"MOCK\") for the full pipeline in mock mode.",
+    defaultConfig: MOCK_CONFIG,
   },
   {
     key: "mock-video",
@@ -111,47 +118,3 @@ export const PROVIDER_CATALOG: CatalogEntry[] = [
   },
 ];
 
-export interface ProviderStatusDetail {
-  status: ProviderStatus;
-  credentialPresent: boolean | null;
-  adapterReady: boolean;
-  reason: string;
-}
-
-export async function evaluateProvider(entry: CatalogEntry): Promise<ProviderStatusDetail> {
-  const credentialPresent = entry.credentialRef ? await isSecretConfigured(entry.credentialRef) : null;
-  const adapterReady = entry.adapterPhase === null;
-  if (!adapterReady)
-    return { status: "NOT_CONFIGURED", credentialPresent, adapterReady, reason: `Adapter ships in phase ${entry.adapterPhase}` };
-  if (credentialPresent === false)
-    return { status: "NOT_CONFIGURED", credentialPresent, adapterReady, reason: `Credential ${entry.credentialRef} is not set` };
-  return { status: "ACTIVE", credentialPresent, adapterReady, reason: entry.isMock ? "Mock adapter" : "Configured" };
-}
-
-/** Upsert catalog rows and recompute status. Admin-set DISABLED is preserved. */
-export async function syncProviderRegistry(): Promise<void> {
-  for (const entry of PROVIDER_CATALOG) {
-    const detail = await evaluateProvider(entry);
-    const existing = await db.aiProvider.findUnique({ where: { key: entry.key }, select: { status: true } });
-    const status = existing?.status === "DISABLED" ? "DISABLED" : detail.status;
-    await db.aiProvider.upsert({
-      where: { key: entry.key },
-      create: {
-        key: entry.key,
-        displayName: entry.displayName,
-        capabilities: entry.capabilities,
-        credentialRef: entry.credentialRef,
-        isMock: entry.isMock,
-        priority: entry.priority,
-        status,
-      },
-      update: {
-        displayName: entry.displayName,
-        capabilities: entry.capabilities,
-        credentialRef: entry.credentialRef,
-        isMock: entry.isMock,
-        status,
-      },
-    });
-  }
-}
