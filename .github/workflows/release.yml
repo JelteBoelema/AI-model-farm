@@ -23,6 +23,9 @@ jobs:
         target: [web, worker, migrate]
     steps:
       - uses: actions/checkout@v4
+      # Image names must be lowercase; the repository name is not.
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.target }}" >> "$GITHUB_ENV"
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
@@ -32,8 +35,8 @@ jobs:
           target: ${{ matrix.target }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/${{ matrix.target }}:${{ github.sha }}
-            ghcr.io/${{ github.repository }}/${{ matrix.target }}:main
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:main
           cache-from: type=gha,scope=${{ matrix.target }}
 
   deploy:
@@ -48,10 +51,11 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
       - name: Run database migrations (one-off ECS task)
         run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}/migrate:${{ github.sha }}"
           aws ecs run-task --cluster "${{ vars.ECS_CLUSTER }}" --launch-type FARGATE \
             --task-definition creator-farm-migrate \
             --network-configuration "${{ vars.ECS_NETWORK_CONFIG }}" \
-            --overrides '{"containerOverrides":[{"name":"migrate","image":"ghcr.io/${{ github.repository }}/migrate:${{ github.sha }}"}]}' \
+            --overrides '{"containerOverrides":[{"name":"migrate","image":"'"$image"'"}]}' \
             --query 'tasks[0].taskArn' --output text > task.txt
           aws ecs wait tasks-stopped --cluster "${{ vars.ECS_CLUSTER }}" --tasks "$(cat task.txt)"
           code=$(aws ecs describe-tasks --cluster "${{ vars.ECS_CLUSTER }}" --tasks "$(cat task.txt)" --query 'tasks[0].containers[0].exitCode' --output text)
