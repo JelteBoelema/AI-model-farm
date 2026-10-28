@@ -27,7 +27,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 
 # ── web ──────────────────────────────────────────────────────────────────────
 FROM node:${NODE_VERSION}-bookworm-slim AS web
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends openssl ca-certificates curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 RUN groupadd --system app && useradd --system --gid app app
@@ -40,7 +40,7 @@ CMD ["node", "server.js"]
 
 # ── worker ───────────────────────────────────────────────────────────────────
 FROM node:${NODE_VERSION}-bookworm-slim AS worker
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates curl ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends openssl ca-certificates curl ffmpeg && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production WORKER_HEALTH_PORT=9464
 RUN groupadd --system app && useradd --system --gid app app

@@ -105,13 +105,10 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}
       # Container scan: fixable high/critical vulnerabilities in OS packages or dependencies fail the build.
       - name: Scan image
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: creator-farm/${{ matrix.target }}:ci
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.57.1 image \
+            --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress \
+            creator-farm/${{ matrix.target }}:ci
 
   dependencies:
     name: Dependency & secret scan
