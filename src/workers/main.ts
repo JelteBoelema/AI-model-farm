@@ -14,6 +14,7 @@ import { MAINTENANCE_SCHEDULES, maintenanceProcessors } from "./processors/maint
 import { promptTestProcessors } from "./processors/prompt-tests";
 import { contentProcessors } from "@/server/services/content-pipeline";
 import { publishingProcessors } from "@/server/services/publishing";
+import { analyticsProcessors } from "@/server/services/analytics-collect";
 
 // Processors are registered per phase. Queues without processors are left untouched so jobs wait
 // safely instead of failing; the Workflow Monitor shows them as "no consumer".
@@ -24,6 +25,7 @@ const PROCESSORS: Partial<Record<QueueName, ProcessorMap>> = {
   "generation-video": contentProcessors,
   "media-processing": contentProcessors,
   publishing: publishingProcessors,
+  analytics: analyticsProcessors,
 };
 
 async function main() {

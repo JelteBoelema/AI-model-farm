@@ -10,6 +10,8 @@ import type { PipelineStep } from "@/lib/content-pipeline";
 import { dispatchDuePublications } from "@/server/services/publishing";
 import { refreshExpiringTokens } from "@/server/services/social";
 import { runAutopilot } from "@/server/services/autopilot";
+import { dispatchCollection } from "@/server/services/analytics-collect";
+import { computeInsights } from "@/server/services/insights";
 
 export const GENERATION_KIND_QUEUE: Record<GenerationKind, QueueName> = {
   TEXT: "generation-text",
@@ -102,6 +104,8 @@ export const maintenanceProcessors = {
   "publishing.dispatch": async () => dispatchDuePublications(),
   "social.refresh-tokens": async () => refreshExpiringTokens(),
   "autopilot.run": async () => runAutopilot(),
+  "analytics.dispatch": async () => dispatchCollection(),
+  "analytics.insights": async () => computeInsights(),
 };
 
 export const MAINTENANCE_SCHEDULES = [
@@ -110,4 +114,6 @@ export const MAINTENANCE_SCHEDULES = [
   { id: "publishing-dispatch", jobName: "publishing.dispatch", everyMs: 60_000 },
   { id: "social-refresh-tokens", jobName: "social.refresh-tokens", everyMs: 6 * 60 * 60_000 },
   { id: "autopilot-run", jobName: "autopilot.run", everyMs: 30 * 60_000 },
+  { id: "analytics-dispatch", jobName: "analytics.dispatch", everyMs: 60 * 60_000 },
+  { id: "analytics-insights", jobName: "analytics.insights", everyMs: 6 * 60 * 60_000 },
 ] as const;

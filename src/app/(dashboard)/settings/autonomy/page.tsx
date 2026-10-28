@@ -40,6 +40,7 @@ export default async function AutonomyPage() {
       maxRetries: p.maxRetries,
       maxNewItemsPerDay: p.maxNewItemsPerDay,
       autoApproveMinScore: p.autoApproveMinScore,
+      analyticsMinSample: p.analyticsMinSample,
       requireHumanApproval: p.requireHumanApproval,
     },
   }));

@@ -33,6 +33,8 @@ async function seedLimits() {
         maxPostsPerDay: 3,
         maxWorkflowMinutes: 180,
         maxRetries: 3,
+        // Analytics may steer the autopilot only with at least 30 measured posts per compared group.
+        analyticsMinSample: 30,
         requireHumanApproval: false,
       },
     });
@@ -171,6 +173,8 @@ async function seedDemo() {
               capturedAt: new Date(now - day / 2),
               origin: "DEMO",
               source: "demo-seed",
+              collectionKey: `demo:${job.id}`,
+              ageHours: 12,
               views: BigInt(1200 + i * 800),
               reach: BigInt(900 + i * 500),
               likes: BigInt(80 + i * 40),

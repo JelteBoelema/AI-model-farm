@@ -10,7 +10,7 @@ Bron: `prisma/schema.prisma` en `prisma/migrations/*/migration.sql`. Alle 17 ver
 - **Geld** — `BigInt` micro-eenheden (1 EUR = 1.000.000) + `currency CHAR(3)`. Geen floats, en `NULL` betekent *onbekend*, nooit nul.
 - **Bestanden** — nooit in PostgreSQL. `media_assets` bewaart `storage_key`, `checksum_sha256` (gevalideerd `^[0-9a-f]{64}$`), grootte, afmetingen en herkomst.
 - **Secrets** — nooit in tabellen. Kolommen `credential_ref` bevatten een verwijzing zoals `env:ANTHROPIC_API_KEY` of `aws-sm:creatorfarm/prod/social/<id>`.
-- **Herkomst** — `is_demo` (seed-demonstratie) en `is_mock` (mockprovider) op alle tabellen waar resultaten kunnen ontstaan; analytics hebben `origin` = `MEASURED` | `DEMO` plus `source`.
+- **Herkomst** — `is_demo` (seed-demonstratie) en `is_mock` (mockprovider) op alle tabellen waar resultaten kunnen ontstaan; analytics hebben `origin` = `MEASURED` | `MOCK` | `DEMO` plus `source`; voorspellingen staan apart in `insights`, nooit tussen metingen.
 
 ## Entiteiten
 
@@ -27,7 +27,7 @@ Bron: `prisma/schema.prisma` en `prisma/migrations/*/migration.sql`. Alle 17 ver
 | `campaign_prompt_pins` | Campagne pint één gepubliceerde versie per template | PK `(campaign_id, template_id)` |
 | `ai_providers` | Providerregister: capabilities, status (`NOT_CONFIGURED/ACTIVE/DEGRADED/DISABLED`), mock-vlag, prijstabel, prioriteit | lege prijstabel ⇒ betaald gebruik geblokkeerd |
 | `campaigns` + `campaign_creators` | Campagnes over meerdere creators | n:m |
-| `content_items` | Eén publiceerbaar stuk content door de pipeline: idee, brief, shotlist (`script.shots`), caption, hashtags, QC-rapport en -score, mislukte stap + reden, start van de productie (voor de workflowduur) | status-machine; `generation_count ≤ max_generations` (check) |
+| `content_items` | Eén publiceerbaar stuk content door de pipeline: idee, brief, shotlist (`script.shots`), caption, hashtags, QC-rapport en -score, mislukte stap + reden, start van de productie (voor de workflowduur), contentpijler | status-machine; `generation_count ≤ max_generations` (check) |
 | `content_batches` | Set items die samen zijn aangemaakt en geproduceerd | items houden hun batch (`SET NULL` bij verwijderen) |
 | `video_scenes` | Storyboard: volgorde, beeldprompt, actie, duur, voice-overtekst (`dialogue`), schermtekst (`audio_notes`), goedgekeurde clip | `(content_item_id, position)` uniek; duur > 0 |
 | `generation_jobs` | Eén pipelinestap (`step`) of generatie: provider, promptversie, gerenderde prompt, parameters, provider-request-ID, pogingen, gestructureerde output, werkelijke kosten + basis, fout | `idempotency_key` uniek; pogingen 1–10; kosten alleen met basis (check); `provider_id` alleen leeg voor lokale `MEDIA_PROCESSING` (check) |
@@ -38,9 +38,10 @@ Bron: `prisma/schema.prisma` en `prisma/migrations/*/migration.sql`. Alle 17 ver
 | `cost_ledger` | **Append-only** kostenjournaal | trigger blokkeert UPDATE/DELETE/TRUNCATE; `idempotency_key` uniek; `ESTIMATED` vereist `uncertainty_note`; `CHARGE ≥ 0` |
 | `budget_reservations` | Gereserveerd budget per job (`HELD→CONSUMED/RELEASED`) | bedrag > 0; `expires_at` |
 | `budget_policies` | Harde limieten per scope (globaal/creator/campagne/provider) en periode (dag/maand) | uniek per scope+target+periode; target verplicht behalve bij globaal |
-| `autonomy_policies` | Kosten per job, generaties per item, gelijktijdige jobs, posts/dag, workflowduur, retries, verplichte goedkeuring, autopilot: nieuwe items per dag en minimale QC-score voor zelfgoedkeuring | uniek per scope+target; waarden binnen veilige grenzen (check `autonomy_policies_values_sane`) |
+| `autonomy_policies` | Kosten per job, generaties per item, gelijktijdige jobs, posts/dag, workflowduur, retries, verplichte goedkeuring, autopilot: nieuwe items per dag en minimale QC-score voor zelfgoedkeuring, minimale steekproef voor analytics (`analytics_min_sample`) | uniek per scope+target; steekproef 5–10.000 (check); waarden binnen veilige grenzen (check `autonomy_policies_values_sane`) |
 | `control_switches` | Kill switches (`ALL_GENERATION`, `ALL_PUBLISHING`, `CREATOR`, `CAMPAIGN`, `PROVIDER`) | uniek per scope+target |
-| `analytics_snapshots` | Tijdgestempelde meting met bron en ruwe respons | per account/item/tijd geïndexeerd |
+| `analytics_snapshots` | Tijdgestempelde meting met bron, herkomst, leeftijd van de post (`age_hours`) en ruwe respons; post- of accountniveau (volgers) | `collection_key` uniek (één per meetmoment); tellers ≥ 0 (check); trigger: een mock-account levert nooit `MEASURED` |
+| `insights` | Voorspellingen: patronen en experimentvoorstellen per creator of farm-breed, per herkomst en dimensie, met steekproef, p-waarde, groepen, minimale steekproef, beslissing | max. één open/geaccepteerd per vingerafdruk (partiële unieke index); steekproef ≥ 0 |
 | `audit_logs` | **Append-only** audittrail: actor (user/system/agent), actie, entiteit, metadata, IP, user agent | trigger blokkeert UPDATE/DELETE/TRUNCATE; secrets worden vóór opslag geschrapt |
 | `notifications` | Meldingen aan een gebruiker of iedereen | `dedupe_key` uniek (één melding per budget per periode) |
 

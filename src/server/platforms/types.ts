@@ -80,6 +80,26 @@ export interface Published {
   url: string | null;
 }
 
+/** Cumulative counters of one post as the platform reports them (null: not reported). */
+export interface PostMetrics {
+  externalPostId: string;
+  views: number | null;
+  reach: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  saves: number | null;
+  watchTimeSec: number | null;
+  avgViewPercent: number | null;
+  /** The platform's response for this post, kept as evidence. */
+  raw: Record<string, unknown>;
+}
+
+export interface AccountMetrics {
+  followers: number | null;
+  raw: Record<string, unknown>;
+}
+
 export type ContainerState = { state: "ready" } | { state: "pending" } | { state: "failed"; reason: string };
 
 export interface PlatformAdapter {
@@ -95,4 +115,9 @@ export interface PlatformAdapter {
   publish(tokens: TokenSet, account: PlatformAccount, publishId: string, signal: AbortSignal): Promise<Published>;
   /** Was this container published after all (used after a timeout or crash)? */
   findPublished(tokens: TokenSet, account: PlatformAccount, p: { publishId: string; caption: string; since: Date }, signal: AbortSignal): Promise<Published | null>;
+  /** Where the numbers come from (stored with every snapshot), e.g. "instagram_graph_api:v23.0/insights". */
+  readonly metricsSource: string;
+  /** Statistics of published posts; posts the platform no longer knows are left out. */
+  postMetrics(tokens: TokenSet, account: PlatformAccount, externalPostIds: string[], signal: AbortSignal): Promise<PostMetrics[]>;
+  accountMetrics(tokens: TokenSet, account: PlatformAccount, signal: AbortSignal): Promise<AccountMetrics>;
 }

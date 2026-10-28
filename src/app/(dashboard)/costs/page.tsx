@@ -3,7 +3,6 @@ import { Coins } from "lucide-react";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { OriginBadge } from "@/components/dashboard/origin-badge";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { PhaseNotice } from "@/components/dashboard/phase-notice";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,7 +35,6 @@ export default async function CostsPage({ searchParams }: Props) {
   return (
     <>
       <PageHeader title="Costs & Budgets" description="Append-only cost ledger. Missing prices are never treated as zero; estimates are labelled with their uncertainty." />
-      <PhaseNotice phase={8} title="Budget automation" items={["Automatic pause and notifications at hard limits", "Budget increase requests with owner approval", "Cost per published item (phase 9)"]} />
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Measured / provider-reported" value={formatMoney(spend.measuredMicros)} badge={<OriginBadge kind="measured" />} />
         <StatCard label="Estimated" value={formatMoney(spend.estimatedMicros)} badge={<OriginBadge kind="estimated" />} hint="Conservative estimates where providers report no cost" />

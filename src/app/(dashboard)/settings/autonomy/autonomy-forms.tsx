@@ -30,6 +30,7 @@ export interface PolicyValues {
   maxRetries: number | null;
   maxNewItemsPerDay: number | null;
   autoApproveMinScore: number | null;
+  analyticsMinSample: number | null;
   requireHumanApproval: boolean;
 }
 
@@ -68,6 +69,7 @@ const FIELDS: { key: Exclude<keyof PolicyValues, "requireHumanApproval">; label:
   { key: "maxRetries", label: "Retries per step", hint: "0–10" },
   { key: "maxNewItemsPerDay", label: "Autopilot: new items per creator per day", hint: "Empty or 0: the autopilot starts nothing" },
   { key: "autoApproveMinScore", label: "Autopilot: self-approve from QC score", hint: "Empty: never. Scoped: only raises the bar" },
+  { key: "analyticsMinSample", label: "Analytics: measured posts per group before planning adapts", hint: "Empty: analytics never steers planning. 5–10,000" },
 ];
 
 const EMPTY: PolicyValues = {
@@ -79,6 +81,7 @@ const EMPTY: PolicyValues = {
   maxRetries: null,
   maxNewItemsPerDay: null,
   autoApproveMinScore: null,
+  analyticsMinSample: null,
   requireHumanApproval: false,
 };
 
@@ -130,6 +133,7 @@ export function PolicyEditor({ policies, targets, canEdit, isOwner }: { policies
       maxRetries: num(draft.maxRetries),
       maxNewItemsPerDay: num(draft.maxNewItemsPerDay),
       autoApproveMinScore: num(draft.autoApproveMinScore),
+      analyticsMinSample: num(draft.analyticsMinSample),
       requireHumanApproval: draft.requireHumanApproval,
     };
     run(() => changePolicyAction({ scope, targetId: scope === "GLOBAL" ? null : targetId, values, reason }), (r) => appliedText(r, "Limits saved"));

@@ -11,7 +11,7 @@ import { can } from "@/lib/rbac";
 import { recordAudit } from "../audit";
 import { db } from "../db";
 import { DomainError } from "../errors";
-import { assertHuman, LIMIT_FIELDS, type LimitField } from "./policy";
+import { assertHuman, BAR_FIELDS, LIMIT_FIELDS, type BarField, type LimitField } from "./policy";
 import { decideConnection } from "./social";
 import type { ActingUser } from "./users";
 
@@ -104,6 +104,7 @@ export const policyChangeSchema = z
       maxRetries: intOrNull(0, 10),
       maxNewItemsPerDay: intOrNull(0, 100),
       autoApproveMinScore: intOrNull(0, 100),
+      analyticsMinSample: intOrNull(5, 10_000).default(null),
       requireHumanApproval: z.boolean(),
     }),
     reason: z.string().trim().max(500).default(""),
@@ -111,7 +112,7 @@ export const policyChangeSchema = z
   .refine((p) => (p.scope === "GLOBAL") === (p.targetId === null), { message: "Farm-wide policies take no target; others need one", path: ["targetId"] });
 
 type PolicyChange = z.output<typeof policyChangeSchema>;
-type PolicyValues = Record<LimitField, number | bigint | null> & { autoApproveMinScore: number | null; requireHumanApproval: boolean };
+type PolicyValues = Record<LimitField, number | bigint | null> & Record<BarField, number | null> & { requireHumanApproval: boolean };
 
 function toValues(v: PolicyChange["values"]): PolicyValues {
   return {
@@ -123,6 +124,7 @@ function toValues(v: PolicyChange["values"]): PolicyValues {
     maxRetries: v.maxRetries,
     maxNewItemsPerDay: v.maxNewItemsPerDay,
     autoApproveMinScore: v.autoApproveMinScore,
+    analyticsMinSample: v.analyticsMinSample,
     requireHumanApproval: v.requireHumanApproval,
   };
 }
@@ -135,11 +137,13 @@ export function loosenedFields(before: PolicyValues | null, after: PolicyValues,
     const b = after[f];
     if ((b === null && a !== null) || (a !== null && b !== null && b > a)) out.push(f);
   }
-  // Auto-approval: at farm level null means "never" (strictest) and a lower score is looser. A
-  // scoped value can only raise the farm's bar, so only lowering or removing it loosens.
-  const sa = before?.autoApproveMinScore ?? null;
-  const sb = after.autoApproveMinScore;
-  if (scope === "GLOBAL" ? (sa === null && sb !== null) || (sa !== null && sb !== null && sb < sa) : sa !== null && (sb === null || sb < sa)) out.push("autoApproveMinScore");
+  // Bars (self-approval score, analytics sample): at farm level null means "never" (strictest) and a
+  // lower value is looser. A scoped value can only raise the farm's bar, so only lowering or removing it loosens.
+  for (const f of BAR_FIELDS) {
+    const sa = before?.[f] ?? null;
+    const sb = after[f];
+    if (scope === "GLOBAL" ? (sa === null && sb !== null) || (sa !== null && sb !== null && sb < sa) : sa !== null && (sb === null || sb < sa)) out.push(f);
+  }
   if ((before?.requireHumanApproval ?? false) && !after.requireHumanApproval) out.push("requireHumanApproval");
   return out;
 }
@@ -165,6 +169,7 @@ function currentValues(row: Awaited<ReturnType<typeof db.autonomyPolicy.findFirs
     maxRetries: row.maxRetries,
     maxNewItemsPerDay: row.maxNewItemsPerDay,
     autoApproveMinScore: row.autoApproveMinScore,
+    analyticsMinSample: row.analyticsMinSample,
     requireHumanApproval: row.requireHumanApproval,
   };
 }
