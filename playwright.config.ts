@@ -32,11 +32,21 @@ export default defineConfig({
     { name: "desktop", use: { ...devices["Desktop Chrome"] }, testIgnore: /responsive\.spec\.ts/ },
     { name: "mobile", use: { ...devices["Pixel 7"] }, testMatch: /responsive\.spec\.ts/ },
   ],
-  webServer: {
-    command: `pnpm exec next start -p ${PORT}`,
-    url: `http://localhost:${PORT}/api/health/live`,
-    reuseExistingServer: false,
-    timeout: 120_000,
-    env: E2E_ENV,
-  },
+  webServer: [
+    {
+      command: `pnpm exec next start -p ${PORT}`,
+      url: `http://localhost:${PORT}/api/health/live`,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: E2E_ENV,
+    },
+    {
+      // Generation and maintenance workers: prompt tests run through the queue.
+      command: "pnpm exec tsx src/workers/main.ts",
+      url: "http://localhost:9480/healthz",
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: { ...E2E_ENV, WORKER_HEALTH_PORT: "9480", WORKER_QUEUES: "generation,scheduler" },
+    },
+  ],
 });

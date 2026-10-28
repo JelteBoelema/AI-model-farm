@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { syncProviderRegistry } from "@/server/providers/registry";
+import { runPromptTestJob } from "@/workers/processors/prompt-tests";
 import { db } from "@/server/db";
 import { DomainError } from "@/server/errors";
 import {
@@ -21,7 +23,7 @@ const captionVars = [
 ];
 const captionBody = "Write a {{platform}} caption for {{creator_name}} about {{topic}}.";
 
-async function publishedTemplate(by: ReturnType<typeof acting>, over: Partial<{ scope: "GLOBAL" | "CREATOR" | "CAMPAIGN"; creatorId: string; campaignId: string; kind: "CAPTION" | "IMAGE" | "SAFETY_RULES"; body: string; key: string }> = {}) {
+async function publishedTemplate(by: ReturnType<typeof acting>, over: Partial<{ scope: "GLOBAL" | "CREATOR" | "CAMPAIGN"; creatorId: string; campaignId: string; kind: "CAPTION" | "IMAGE" | "VIDEO" | "SAFETY_RULES"; body: string; key: string }> = {}) {
   const t = await createTemplate(by, {
     key: over.key ?? `test.caption.${uid()}`,
     name: "Caption",
@@ -35,6 +37,10 @@ async function publishedTemplate(by: ReturnType<typeof acting>, over: Partial<{ 
   await publishVersion(by, v1.id, "initial");
   return { template: t, v1 };
 }
+
+beforeAll(async () => {
+  await syncProviderRegistry();
+});
 
 describe("templates and versions", () => {
   it("creates a template with an empty draft v1 and validates scope", async () => {
@@ -84,26 +90,37 @@ describe("rendering and tests", () => {
     const admin = acting(await makeUser("ADMIN"));
     const creator = await makeCreator({ name: `Noor ${uid()}` });
     const { v1 } = await publishedTemplate(admin);
-    await publishedTemplate(admin, { kind: "SAFETY_RULES", key: `safety.${uid()}`, body: "Never imitate real people. Creator: {{creator_name}}." });
+    await expect(publishedTemplate(admin, { kind: "SAFETY_RULES", key: `safety.${uid()}`, body: "Never imitate real people. Creator: {{creator_name}}." })).rejects.toThrow(/static text/);
+    await publishedTemplate(admin, { kind: "SAFETY_RULES", key: `safety.${uid()}`, body: "Never imitate real people." });
     const r = await renderVersion(v1.id, { topic: "rain" }, { creatorId: creator.id });
     expect(r.text).toBe(`Write a instagram caption for ${creator.name} about rain.`);
-    expect(r.safetyRules).toContain(`Never imitate real people. Creator: ${creator.name}.`);
+    expect(r.safetyRules).toContain("Never imitate real people.");
     await expect(renderVersion(v1.id, { topic: "rain" })).rejects.toThrow(/creator/);
   });
 
-  it("records test runs: text kinds via the labelled mock, visual kinds render-only", async () => {
+  it("records test runs: text and image kinds are queued on the (mock) providers, video renders only", async () => {
     const admin = acting(await makeUser("ADMIN"));
     const creator = await makeCreator();
     const { v1 } = await publishedTemplate(admin);
     const run = await runPromptTest(admin, { versionId: v1.id, values: { topic: "boots" }, creatorId: creator.id });
-    expect(run).toMatchObject({ status: "SUCCEEDED", isMock: true, providerKey: "mock-text", costMicros: 0n, costBasis: "MEASURED" });
-    expect(run.output).toMatch(/^\[Mock caption output/);
+    expect(run).toMatchObject({ status: "QUEUED", isMock: true, providerKey: "mock-text", costMicros: null });
     expect(run.renderedPrompt).toContain("about boots");
+    await runPromptTestJob({ data: { runId: run.id }, attemptsMade: 0, opts: { attempts: 3 } }, new AbortController().signal);
+    const done = await db.promptTestRun.findUniqueOrThrow({ where: { id: run.id } });
+    expect(done).toMatchObject({ status: "SUCCEEDED", costMicros: 0n, costBasis: "MEASURED" });
+    expect(done.output).toMatch(/^\[Mock caption output/);
 
     const image = await publishedTemplate(admin, { kind: "IMAGE", key: `image.${uid()}`, body: "Photo of {{creator_name}}, {{topic}}, {{platform}}" });
     const irun = await runPromptTest(admin, { versionId: image.v1.id, values: { topic: "beach" }, creatorId: creator.id });
-    expect(irun).toMatchObject({ status: "RENDERED", isMock: false, output: null, providerKey: null });
-    expect(await db.auditLog.count({ where: { action: "prompt.test_run", entityId: { in: [v1.id, image.v1.id] } } })).toBe(2);
+    expect(irun).toMatchObject({ status: "QUEUED", providerKey: "mock-image" });
+
+    const t = await createTemplate(admin, { key: `video.${uid()}`, name: "Video", kind: "VIDEO", scope: "GLOBAL" });
+    const vv = await db.promptVersion.findFirstOrThrow({ where: { templateId: t.id } });
+    await saveDraft(admin, vv.id, { body: "Clip about {{topic}}", variables: [captionVars[0]!] });
+    await publishVersion(admin, vv.id, "first version");
+    const vrun = await runPromptTest(admin, { versionId: vv.id, values: { topic: "surf" } });
+    expect(vrun).toMatchObject({ status: "RENDERED", providerKey: null, output: null, costMicros: 0n });
+    expect(await db.auditLog.count({ where: { action: "prompt.test_run", entityId: { in: [v1.id, image.v1.id, vv.id] } } })).toBe(3);
   });
 });
 

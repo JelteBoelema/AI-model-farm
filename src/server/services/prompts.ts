@@ -19,7 +19,8 @@ import { db } from "../db";
 import { recordAudit } from "../audit";
 import { DomainError } from "../errors";
 import { renderTemplate, TemplateError, validateTemplate, type TemplateIssue } from "../prompts/engine";
-import { MOCK_TEXT_PROVIDER, mockGenerateText } from "../providers/mock-text";
+import { selectProvider } from "../providers/registry";
+import { enqueue } from "../queue/queues";
 import type { ActingUser } from "./users";
 
 function require(by: ActingUser, permission: Permission) {
@@ -152,9 +153,12 @@ export async function publishVersion(by: ActingUser, versionId: string, changelo
   const changelog = changelogRaw.trim();
   if (changelog.length < 3) throw new DomainError("Describe what changed in this version");
   if (v.status !== "DRAFT") throw new DomainError("Only drafts can be published");
-  const { issues } = versionIssues(v);
+  const { issues, references } = versionIssues(v);
   const errors = issues.filter((i) => i.severity === "error");
   if (errors.length) throw new DomainError(`Fix the template before publishing: ${errors.map((e) => e.message).join("; ")}`);
+  // Rules are appended to every prompt, with or without creator context, so they must be static.
+  if ((RULE_KINDS as readonly string[]).includes(v.template.kind) && references.length)
+    throw new DomainError("Rule templates must be static text without variables, because they apply to every prompt");
   await db.$transaction(async (tx) => {
     const res = await tx.promptVersion.updateMany({ where: { id: versionId, status: "DRAFT" }, data: { status: "PUBLISHED", publishedAt: new Date(), changelog } });
     if (res.count !== 1) throw new DomainError("This version changed meanwhile");
@@ -265,8 +269,12 @@ export async function renderSafetyRules(context: Partial<Record<string, string>>
   for (const t of templates) {
     const v = await db.promptVersion.findFirst({ where: { templateId: t.id, status: "PUBLISHED" }, orderBy: { version: "desc" } });
     if (!v) continue;
-    const defs = parseVariableDefs(v.variablesSchema);
-    parts.push(renderTemplate(v.body, defs, {}, context).text);
+    try {
+      parts.push(renderTemplate(v.body, parseVariableDefs(v.variablesSchema), {}, context).text);
+    } catch {
+      // Older rule versions with variables: keep the rule text rather than dropping the rules.
+      parts.push(v.body);
+    }
   }
   return parts.length ? parts.join("\n\n") : null;
 }
@@ -299,19 +307,18 @@ export const testRunSchema = z.object({
 });
 
 /**
- * Records a test of a version. Text kinds run against the text provider (mock until phase 4);
- * visual and rule kinds are rendered only. Cost is recorded per run: mock and render-only runs cost
- * a known 0, real provider runs will book their measured cost.
+ * Records a test of a version and queues it. Text prompts run on the selected text provider and
+ * image prompts on the selected image provider (the labelled mocks in mock mode); video and rule
+ * prompts are rendered only. Execution, cost booking and retries happen in the generation workers.
  */
 export async function runPromptTest(by: ActingUser, raw: z.input<typeof testRunSchema>) {
   require(by, "prompts:edit");
   const input = testRunSchema.parse(raw);
   const v = await loadVersion(input.versionId);
   if (v.status === "DEPRECATED") throw new DomainError("Deprecated versions cannot be tested");
-  const started = Date.now();
   const rendered = await renderVersion(v.id, input.values, input);
-  const generates = (TEXT_KINDS as readonly string[]).includes(v.template.kind);
-  const fullPrompt = rendered.safetyRules ? `${rendered.text}\n\n---\nRules:\n${rendered.safetyRules}` : rendered.text;
+  const capability = (TEXT_KINDS as readonly string[]).includes(v.template.kind) ? "TEXT" : v.template.kind === "IMAGE" ? "IMAGE" : null;
+  const provider = capability ? await selectProvider(capability) : null;
 
   const run = await db.$transaction(async (tx) => {
     const created = await tx.promptTestRun.create({
@@ -322,18 +329,28 @@ export async function runPromptTest(by: ActingUser, raw: z.input<typeof testRunS
         variables: rendered.values as Prisma.InputJsonValue,
         renderedPrompt: rendered.text,
         safetyRules: rendered.safetyRules,
-        status: generates ? "SUCCEEDED" : "RENDERED",
-        providerKey: generates ? MOCK_TEXT_PROVIDER : null,
-        isMock: generates,
-        output: generates ? mockGenerateText(fullPrompt, v.template.kind) : null,
-        costMicros: 0n,
-        costBasis: "MEASURED",
-        durationMs: Date.now() - started,
+        status: provider ? "QUEUED" : "RENDERED",
+        providerId: provider?.row.id ?? null,
+        providerKey: provider?.row.key ?? null,
+        model: provider?.config.model ?? null,
+        isMock: provider?.row.isMock ?? false,
+        // Rendering alone costs nothing; provider runs record their cost when they finish.
+        costMicros: provider ? null : 0n,
+        costBasis: provider ? null : "MEASURED",
         createdById: by.id,
       },
     });
-    await recordAudit(by.actor, { action: "prompt.test_run", entityType: "prompt_version", entityId: v.id, metadata: { testRunId: created.id, status: created.status, isMock: created.isMock } }, tx);
+    await recordAudit(by.actor, { action: "prompt.test_run", entityType: "prompt_version", entityId: v.id, metadata: { testRunId: created.id, status: created.status, provider: created.providerKey, isMock: created.isMock } }, tx);
     return created;
   });
+
+  if (capability && provider) {
+    try {
+      await enqueue(capability === "TEXT" ? "generation-text" : "generation-image", "prompt-test.run", { runId: run.id }, { idempotencyKey: `prompt-test:${run.id}` });
+    } catch (err) {
+      await db.promptTestRun.update({ where: { id: run.id }, data: { status: "FAILED", errorKind: "internal", error: "Could not queue the test run" } });
+      throw err;
+    }
+  }
   return run;
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, useTransition } from "react";
 import { Eye, FlaskConical } from "lucide-react";
 import { toast } from "sonner";
 import { OriginBadge } from "@/components/dashboard/origin-badge";
@@ -26,7 +27,19 @@ export interface TestRunView {
   renderedPrompt: string;
   safetyRules: string | null;
   output: string | null;
+  outputUrl: string | null;
+  error: string | null;
   cost: string;
+}
+
+/** Re-renders the page every 2 s while test runs are queued or running. */
+function useAutoRefresh(active: boolean) {
+  const router = useRouter();
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => router.refresh(), 2000);
+    return () => clearInterval(t);
+  }, [active, router]);
 }
 
 interface Option {
@@ -43,6 +56,7 @@ export function TestPanel({ versionId, variables, creators, campaigns, runs, gen
   const [selected, setSelected] = useState<string[]>([]);
   const [pending, start] = useTransition();
 
+  useAutoRefresh(runs.some((r) => r.status === "QUEUED" || r.status === "RUNNING"));
   const payload = () => ({ versionId, values, creatorId: creatorId || null, campaignId: campaignId || null });
 
   function doPreview() {
@@ -59,7 +73,7 @@ export function TestPanel({ versionId, variables, creators, campaigns, runs, gen
     start(async () => {
       const res = await runPromptTestAction(payload());
       if (res.ok) {
-        toast.success(generates ? "Test run completed" : "Rendered and recorded");
+        toast.success(generates ? "Test run queued" : "Rendered and recorded");
         setSelected((s) => [res.data!.id, ...s].slice(0, 2));
       } else setError(res.error);
     });
@@ -111,7 +125,9 @@ export function TestPanel({ versionId, variables, creators, campaigns, runs, gen
           <FlaskConical /> {generates ? "Run test" : "Render & record"}
         </Button>
         <p className="self-center text-xs text-muted-foreground">
-          {generates ? "Runs against the text provider: the labelled mock until phase 4. Cost is recorded per run." : "Visual and rule prompts are rendered only until the image/video providers ship (phase 4/6)."}
+          {generates
+            ? "Queued on the generation workers with the selected provider (the labelled mock in mock mode). Cost is recorded per run."
+            : "Video and rule prompts are rendered only; video generation ships in phase 6."}
         </p>
       </div>
       {preview ? (
@@ -145,6 +161,7 @@ export function TestPanel({ versionId, variables, creators, campaigns, runs, gen
               <StatusBadge status={r.status} />
               {r.isMock ? <OriginBadge kind="mock" /> : null}
               <span className="text-muted-foreground">{r.creatorName ?? "no creator"}</span>
+              {r.error ? <span className="max-w-xs truncate text-destructive" title={r.error}>{r.error}</span> : null}
               <span className="ml-auto text-muted-foreground">cost {r.cost}</span>
             </li>
           ))}
@@ -162,7 +179,14 @@ export function TestPanel({ versionId, variables, creators, campaigns, runs, gen
               <p className="font-medium">Prompt</p>
               <pre className="whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono">{r.renderedPrompt}</pre>
               <p className="font-medium">Output</p>
-              <pre className="whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono">{r.output ?? "— rendered only —"}</pre>
+              {r.outputUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- authenticated/signed media URL
+                <img src={r.outputUrl} alt={`Generated image of run ${r.createdAt}`} className="max-h-96 w-auto rounded border object-contain" />
+              ) : (
+                <pre className="whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono">
+                  {r.output ?? (r.status === "QUEUED" || r.status === "RUNNING" ? "— running —" : r.status === "FAILED" ? `— failed: ${r.error ?? "unknown error"} —` : "— rendered only —")}
+                </pre>
+              )}
             </div>
           ))}
         </div>

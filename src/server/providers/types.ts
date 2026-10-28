@@ -1,97 +1,103 @@
-// Provider adapter contract (implemented from phase 4). Every AI provider, real or mock, sits behind
-// this interface so the content factory never depends on a vendor SDK directly.
+// Provider adapter contract. Every AI provider, real or mock, sits behind this interface so the
+// content factory never depends on a vendor SDK directly.
 
 import type { ProviderCapability } from "@prisma/client";
+import type { Usage } from "./pricing";
 
 export type ProviderErrorKind =
   | "invalid_input" // never retried
   | "content_policy" // provider refused; never retried, surfaces for review
-  | "auth" // credential missing/revoked; pauses the provider
+  | "auth" // credential missing/revoked/not permitted; pauses the provider
   | "rate_limited" // retried after retryAfterMs
   | "transient" // 5xx/network; retried with backoff
-  | "timeout" // outcome unknown: poll status before any retry
-  | "quota_exceeded"; // provider-side quota; pauses the provider
+  | "timeout" // outcome unknown: the provider may have charged
+  | "quota_exceeded"; // billing/quota; pauses the provider
 
 export class ProviderError extends Error {
   constructor(
     readonly kind: ProviderErrorKind,
     message: string,
-    readonly options: { retryAfterMs?: number; providerCode?: string; cause?: unknown } = {},
+    readonly options: { retryAfterMs?: number; providerCode?: string; status?: number } = {},
   ) {
     super(message);
     this.name = "ProviderError";
   }
 
   get retryable(): boolean {
-    return this.kind === "rate_limited" || this.kind === "transient" || this.kind === "timeout";
+    return this.kind === "rate_limited" || this.kind === "transient";
   }
-}
 
-/** One billable quantity, e.g. 1_200 input tokens or 8 video seconds. */
-export interface UsageUnit {
-  unitType: "input_token" | "output_token" | "image" | "video_second" | "audio_character" | "audio_second" | "request";
-  quantity: number;
-}
-
-export interface CostEstimate {
-  /** Conservative upper bound in micro-EUR; null means "price unknown" and blocks paid execution. */
-  maxMicros: bigint | null;
-  basis: "PROVIDER_REPORTED" | "ESTIMATED";
-  uncertaintyNote?: string;
-  usage: UsageUnit[];
+  /** The provider stays unusable until a human fixes credentials or billing. */
+  get pausesProvider(): boolean {
+    return this.kind === "auth" || this.kind === "quota_exceeded";
+  }
 }
 
 export interface ModelCapability {
   capability: ProviderCapability;
   model: string;
-  /** e.g. ["1:1", "4:5", "9:16"] for images/video */
-  aspectRatios?: string[];
-  maxDurationSeconds?: number;
   supportsReferenceImages?: boolean;
   maxReferenceImages?: number;
-  supportsSeed?: boolean;
-  supportsAudio?: boolean;
   commercialUseAllowed: boolean;
+}
+
+export interface ReferenceImage {
+  bytes: Buffer;
+  mimeType: string;
 }
 
 export interface GenerationRequest {
   capability: ProviderCapability;
   model: string;
-  /** Stable key; adapters pass it to providers that support idempotent submission. */
-  idempotencyKey: string;
   prompt: string;
-  negativePrompt?: string;
-  /** Storage keys of approved reference media (character conditioning, image-to-video). */
-  referenceAssetKeys?: string[];
+  /** Instructions kept separate from the user prompt (e.g. safety rules) where the provider supports it. */
+  system?: string;
+  maxOutputTokens?: number;
+  /** Ask a text model for JSON that matches this JSON Schema. */
+  jsonSchema?: Record<string, unknown>;
+  referenceImages?: ReferenceImage[];
   params: Record<string, unknown>;
 }
 
-export type GenerationStatus =
-  | { state: "pending" | "running"; providerJobId: string; progress?: number }
-  | { state: "succeeded"; providerJobId: string; outputs: GenerationOutput[]; usage: UsageUnit[]; reportedCostMicros?: bigint; modelVersion?: string }
-  | { state: "failed"; providerJobId: string; error: ProviderError };
+/** Usage of one billed attempt; refusal fallbacks can produce several attempts on different models. */
+export interface AttemptUsage {
+  model: string;
+  usage: Usage;
+}
 
 export interface GenerationOutput {
-  kind: "text" | "image" | "video" | "audio";
-  /** Text output inline; binary outputs as a temporary provider URL or bytes to be copied to storage. */
+  kind: "text" | "image";
   text?: string;
-  url?: string;
   bytes?: Buffer;
   mimeType?: string;
-  metadata?: Record<string, unknown>;
+}
+
+export interface GenerationResult {
+  outputs: GenerationOutput[];
+  attempts: AttemptUsage[];
+  /** Model that produced the returned output. */
+  servedBy: string;
+  providerRequestId?: string;
+  notes: string[];
+}
+
+export interface CostEstimate {
+  /** Usage at the upper bound; priced with the provider's table by the caller. */
+  maxUsage: Usage;
+  uncertaintyNote: string;
 }
 
 export interface ProviderAdapter {
   readonly key: string;
   readonly isMock: boolean;
-  /** What this adapter can do with the configured credential (may query the provider). */
+  /** What this adapter can do with the configured credential (queries the provider). */
   discoverCapabilities(signal: AbortSignal): Promise<ModelCapability[]>;
   /** Throws ProviderError("invalid_input") before any money is spent. */
   validate(request: GenerationRequest): void;
-  estimateCost(request: GenerationRequest): Promise<CostEstimate>;
-  /** Starts work. Synchronous providers may return a terminal status immediately. */
-  submit(request: GenerationRequest, signal: AbortSignal): Promise<GenerationStatus>;
-  /** Polls a submitted job; used for async providers and for resolving timeouts. */
-  getStatus(providerJobId: string, signal: AbortSignal): Promise<GenerationStatus>;
-  cancel?(providerJobId: string): Promise<void>;
+  estimate(request: GenerationRequest): CostEstimate;
+  /**
+   * Runs the generation. Both current real providers answer synchronously; asynchronous providers
+   * (video, phase 6) will add submit/poll methods to this contract.
+   */
+  generate(request: GenerationRequest, signal: AbortSignal): Promise<GenerationResult>;
 }

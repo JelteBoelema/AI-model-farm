@@ -446,7 +446,9 @@ model PromptVersion {
 }
 
 enum PromptTestStatus {
-  RENDERED // prompt rendered only; no provider call (e.g. visual prompts before phase 4)
+  QUEUED
+  RUNNING
+  RENDERED // prompt rendered only; no provider call (video and rule prompts)
   SUCCEEDED
   FAILED
 }
@@ -461,7 +463,14 @@ model PromptTestRun {
   renderedPrompt  String           @map("rendered_prompt")
   safetyRules     String?          @map("safety_rules")
   status          PromptTestStatus
+  providerId      String?          @map("provider_id") @db.Uuid
   providerKey     String?          @map("provider_key")
+  model           String?
+  outputMediaId   String?          @map("output_media_id") @db.Uuid
+  attempts        Int              @default(0)
+  errorKind       String?          @map("error_kind")
+  startedAt       DateTime?        @map("started_at") @db.Timestamptz(3)
+  finishedAt      DateTime?        @map("finished_at") @db.Timestamptz(3)
   isMock          Boolean          @default(false) @map("is_mock")
   output          String?
   error           String?
@@ -473,8 +482,10 @@ model PromptTestRun {
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
 
   promptVersion PromptVersion @relation(fields: [promptVersionId], references: [id], onDelete: Restrict)
+  outputMedia   MediaAsset?   @relation(fields: [outputMediaId], references: [id], onDelete: SetNull)
 
   @@index([promptVersionId, createdAt])
+  @@index([status, createdAt])
   @@map("prompt_test_runs")
 }
 
@@ -686,6 +697,7 @@ model MediaAsset {
   contentItem         ContentItem?         @relation(fields: [contentItemId], references: [id], onDelete: SetNull)
   generationJob       GenerationJob?       @relation(fields: [generationJobId], references: [id], onDelete: SetNull)
   characterReferences CharacterReference[]
+  promptTestRuns      PromptTestRun[]
 
   @@index([creatorId, kind, status])
   @@index([contentItemId])
