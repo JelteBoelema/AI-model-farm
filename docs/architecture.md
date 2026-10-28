@@ -62,7 +62,8 @@ creator-farm/
 │   ├── instrumentation.ts       # OpenTelemetry (optioneel)
 │   └── middleware.ts            # route-bescherming
 ├── tests/unit, tests/integration, e2e/
-├── infra/aws/                   # ECS task-definities, autoscaling
+├── infra/terraform/             # AWS-infrastructuur (Terraform), WAF, alarmen
+├── infra/alarms.json            # alarmdefinities (gedeeld met de alarmtest)
 ├── Dockerfile                   # targets: web, worker, migrate
 ├── docker-compose.yml           # volledige lokale stack incl. MinIO
 └── .github/workflows/           # ci.yml, release.yml

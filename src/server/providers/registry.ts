@@ -254,6 +254,14 @@ export async function autoPauseProvider(providerId: string, err: ProviderError) 
   });
 }
 
+/** Our own per-provider request limit was reached: nothing was sent to the provider or billed. */
+export class LocalRateLimitError extends ProviderError {
+  constructor(message: string, retryAfterMs: number) {
+    super("rate_limited", message, { retryAfterMs });
+    this.name = "LocalRateLimitError";
+  }
+}
+
 // Fixed one-minute window per provider in Redis.
 export async function acquireRateLimit(providerId: string, maxPerMinute: number, now = Date.now()): Promise<void> {
   const minute = Math.floor(now / 60_000);
@@ -261,7 +269,7 @@ export async function acquireRateLimit(providerId: string, maxPerMinute: number,
   const count = await redis().incr(key);
   if (count === 1) await redis().expire(key, 70);
   if (count > maxPerMinute) {
-    throw new ProviderError("rate_limited", `Provider limit of ${maxPerMinute} requests per minute reached`, { retryAfterMs: (minute + 1) * 60_000 - now + 250 });
+    throw new LocalRateLimitError(`Provider limit of ${maxPerMinute} requests per minute reached`, (minute + 1) * 60_000 - now + 250);
   }
 }
 

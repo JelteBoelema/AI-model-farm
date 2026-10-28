@@ -6,6 +6,7 @@ import type { Worker } from "bullmq";
 import { env } from "@/server/env";
 import { db } from "@/server/db";
 import { logger } from "@/server/logger";
+import { initTelemetry } from "@/server/telemetry";
 import { redis } from "@/server/redis";
 import { QUEUES, resolveWorkerQueues, type QueueName } from "@/server/queue/definitions";
 import { closeQueues, getQueue } from "@/server/queue/queues";
@@ -30,6 +31,7 @@ const PROCESSORS: Partial<Record<QueueName, ProcessorMap>> = {
 
 async function main() {
   const config = env();
+  await initTelemetry("creator-farm-worker");
   const queues = resolveWorkerQueues(config.WORKER_QUEUES);
   const workers: Worker[] = [];
   const consuming: QueueName[] = [];

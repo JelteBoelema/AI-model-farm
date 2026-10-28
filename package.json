@@ -24,7 +24,10 @@
     "test:integration": "vitest run --project integration",
     "test:e2e": "playwright test",
     "postinstall": "prisma generate",
-    "test:live": "tsx scripts/live-smoke.ts"
+    "test:live": "tsx scripts/live-smoke.ts",
+    "queues:rebuild": "tsx scripts/rebuild-queues.ts",
+    "drill:restore": "tsx scripts/restore-drill.ts",
+    "test:load": "tsx scripts/load-test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",
@@ -76,7 +79,11 @@
       "esbuild",
       "sharp",
       "unrs-resolver"
-    ]
+    ],
+    "overrides": {
+      "next>postcss": "8.5.28",
+      "@prisma/config>deepmerge-ts": "8.0.2"
+    }
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",

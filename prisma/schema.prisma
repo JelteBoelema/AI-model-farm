@@ -287,17 +287,24 @@ enum NotificationSeverity {
 // ─────────────────────────────── Identity ───────────────────────────────
 
 model User {
-  id           String    @id @default(uuid()) @db.Uuid
-  email        String    @unique
-  name         String
-  passwordHash String    @map("password_hash")
-  role         UserRole  @default(VIEWER)
+  id               String    @id @default(uuid()) @db.Uuid
+  email            String    @unique
+  name             String
+  passwordHash     String    @map("password_hash")
+  role             UserRole  @default(VIEWER)
   // Service identity (the autopilot): never signs in, acts with actor type AGENT.
-  isSystem     Boolean   @default(false) @map("is_system")
-  disabledAt   DateTime? @map("disabled_at") @db.Timestamptz(3)
-  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(3)
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  isSystem         Boolean   @default(false) @map("is_system")
+  disabledAt       DateTime? @map("disabled_at") @db.Timestamptz(3)
+  // Two-factor authentication (TOTP). The secret is encrypted with APP_ENCRYPTION_KEY; recovery
+  // codes are stored as keyed hashes and removed when used.
+  mfaSecret        String?   @map("mfa_secret")
+  mfaEnabledAt     DateTime? @map("mfa_enabled_at") @db.Timestamptz(3)
+  // Last accepted 30-second step: a code is accepted once.
+  mfaLastStep      Int?      @map("mfa_last_step")
+  mfaRecoveryCodes String[]  @default([]) @map("mfa_recovery_codes")
+  lastLoginAt      DateTime? @map("last_login_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   creatorsCreated  Creator[]
   approvalsDecided Approval[]     @relation("ApprovalDecidedBy")

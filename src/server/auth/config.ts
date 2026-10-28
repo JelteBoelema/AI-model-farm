@@ -26,6 +26,8 @@ export const authConfig = {
     },
     session({ session, token }) {
       if (typeof token.uid === "string") session.user.id = token.uid;
+      // How this session signed in ("password" or "sso"), for the two-factor requirement.
+      if (typeof token.via === "string") (session.user as { via?: string }).via = token.via;
       if (typeof token.role === "string") session.user.role = token.role as UserRole;
       return session;
     },

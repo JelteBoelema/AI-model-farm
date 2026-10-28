@@ -338,6 +338,27 @@ describe("policy checks before every step", () => {
     expect((await db.contentItem.findUniqueOrThrow({ where: { id: item.id } })).status).toBe("READY");
   });
 
+  it("waits for the next window when the provider's request limit is reached, without using an attempt", async () => {
+    await setGlobalPolicy({});
+    const creator = await readyCreator();
+    const provider = await db.aiProvider.findFirstOrThrow({ where: { key: "mock-text" } });
+    const saved = provider.config;
+    await db.aiProvider.update({ where: { id: provider.id }, data: { config: { ...(saved as object), maxRequestsPerMinute: 1 } } });
+    try {
+      const a = await createContent(owner, { creatorId: creator.id, format: "IMAGE_POST", title: "First", produce: true });
+      const b = await createContent(owner, { creatorId: creator.id, format: "IMAGE_POST", title: "Second", produce: true });
+      const [ja, jb] = await Promise.all([a, b].map((i) => db.generationJob.findFirstOrThrow({ where: { contentItemId: i.id } })));
+      await step(ja!.id);
+      expect(await step(jb!.id)).toEqual({ deferred: "rate_limit" });
+      expect(await db.generationJob.findUniqueOrThrow({ where: { id: jb!.id } })).toMatchObject({ status: "QUEUED", attempt: 0, error: { kind: "rate_limit_wait" } });
+      expect((await db.contentItem.findUniqueOrThrow({ where: { id: b.id } })).failedStep).toBeNull();
+      const delayed = await getQueue("generation-text").getJobs(["delayed"]);
+      expect(delayed.some((j) => (j.data as { jobId: string }).jobId === jb!.id && j.opts.delay! >= 250)).toBe(true);
+    } finally {
+      await db.aiProvider.update({ where: { id: provider.id }, data: { config: saved ?? {} } });
+    }
+  });
+
   it("stops the chain when production runs past the workflow limit", async () => {
     await setGlobalPolicy({ maxWorkflowMinutes: 60 });
     const creator = await readyCreator();

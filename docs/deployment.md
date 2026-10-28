@@ -19,15 +19,23 @@
 
 Netwerk: VPC met private subnets voor taken, RDS en Redis; alleen de ALB is publiek. Uitgaand verkeer naar providers via NAT-gateway. Security groups staan alleen web/workers → RDS (5432) en → Redis (6379) toe.
 
-IAM: aparte task roles. De execution role leest alleen de platformsecrets.
+IAM: aparte task roles.
 - `web`:
   - S3 lezen/schrijven op de mediabucket;
-  - Secrets Manager lezen op `creatorfarm/prod/*`;
-  - op `creatorfarm/prod/social/*` ook aanmaken, wijzigen en verwijderen: de OAuth-callback en het ontkoppelen beheren de tokens van gekoppelde accounts.
-- `worker`: dezelfde rechten als `web`, maar op `social/*` alleen lezen en wijzigen (tokenvernieuwing), niet verwijderen.
-- Zie `infra/aws/iam-social-secrets.json`.
+  - Secrets Manager lezen op `creatorfarm/<env>/*`;
+  - op `…/social/*` ook aanmaken, wijzigen en verwijderen: de OAuth-callback en het ontkoppelen beheren de tokens van gekoppelde accounts.
+- `worker`: dezelfde rechten als `web`, maar op `social/*` alleen wijzigen (tokenvernieuwing), niet aanmaken of verwijderen.
+- De execution role leest alleen de vier platformsecrets.
+- De deployrol is alleen aan te nemen door de GitHub-environment van deze repository (OIDC).
 
-Templates: `infra/aws/task-web.json`, `task-worker.json` (één template, vier services via `WORKER_ROLE`), `task-migrate.json`, autoscaling in `infra/aws/worker-autoscaling.md`.
+**Infrastructure-as-code**: alles hierboven staat in `infra/terraform/`:
+- netwerk;
+- RDS, ElastiCache, S3 met replicatie naar `eu-west-1`, KMS, Secrets Manager;
+- ECS (services, taken, autoscaling op wachtrij per taak);
+- ALB met WAF;
+- alarmen en SNS;
+- de deployrol.
+Applicatie-alarmen komen uit `infra/alarms.json`, dezelfde definities die de alarmtest gebruikt. CI draait `terraform fmt` en `terraform validate` en een Checkov-scan.
 
 ## Omgevingsvariabelen
 
@@ -44,27 +52,61 @@ Volledige lijst met uitleg: `.env.example`. Productie-eisen worden bij opstarten
 | `SECRETS_DRIVER` | `aws` (afgedwongen) |
 | `MOCK_MODE` | `false` zodra echte providers geconfigureerd zijn |
 | `WORKER_QUEUES` | per worker-service: `scheduler`, `generation`, `media`, `publishing` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | collector-sidecar, bijv. `http://localhost:4318` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | optioneel: collector (bijv. ADOT-sidecar `http://localhost:4318`) voor traces naar X-Ray |
+| `MFA_REQUIRED_ROLES` | standaard `OWNER,ADMIN` in productie |
+| `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | optioneel: single sign-on (Terraform-variabele `oidc`) |
+| `RATE_LIMIT_ACTIONS_PER_MINUTE`, `RATE_LIMIT_API_PER_MINUTE` | standaard 120 / 300 |
 
 ## Eerste installatie
 
-1. **Infrastructuur** aanmaken (VPC, RDS, ElastiCache, S3-bucket, Secrets Manager-secrets, ECS-cluster, ALB, log groups). Infrastructure-as-code (Terraform/CDK) volgt in fase 10; tot die tijd handmatig of via de console volgens deze tabel.
-2. **Secrets** vullen:
-   ```bash
-   aws secretsmanager create-secret --name creatorfarm/prod/auth-secret --secret-string "$(openssl rand -base64 48)"
-   aws secretsmanager create-secret --name creatorfarm/prod/encryption-key --secret-string "$(openssl rand -base64 32)"
-   aws secretsmanager create-secret --name creatorfarm/prod/database-url --secret-string "postgresql://…?sslmode=require"
-   aws secretsmanager create-secret --name creatorfarm/prod/redis-url --secret-string "rediss://…"
+1. **Terraform-state**: een S3-bucket (versiebeheer aan) en een DynamoDB-tabel voor locks, eenmalig handmatig. Leg die vast in `infra/terraform/backend.hcl`:
+   ```hcl
+   bucket = "…"
+   key = "creator-farm/production.tfstate"
+   region = "eu-central-1"
+   dynamodb_table = "…"
+   encrypt = true
    ```
-3. **Images** bouwen: push naar `main` → workflow *Release* publiceert `web`, `worker`, `migrate` naar GHCR.
-4. **Migraties**: draai de `creator-farm-migrate` taak (doet `prisma migrate deploy`; nooit `migrate reset` of `db push` in productie).
-5. **Seed** (eenmalig, vanaf een beheerhost met toegang tot de database):
+2. **Certificaat**: ACM-certificaat voor het domein in `eu-central-1`.
+3. **GitHub OIDC-provider** in het AWS-account (`token.actions.githubusercontent.com`), eenmalig.
+4. **Infrastructuur**:
+   ```bash
+   cd infra/terraform
+   cp production.tfvars.example production.tfvars   # invullen
+   terraform init -backend-config=backend.hcl
+   terraform plan -var-file=production.tfvars -out plan && terraform apply plan
+   ```
+   Bevestig daarna de SNS-e-mail voor alarmen.
+5. **Secrets vullen.** Terraform maakt ze leeg aan.
+   ```bash
+   aws secretsmanager put-secret-value --secret-id creatorfarm/prod/auth-secret --secret-string "$(openssl rand -base64 48)"
+   aws secretsmanager put-secret-value --secret-id creatorfarm/prod/encryption-key --secret-string "$(openssl rand -base64 32)"
+   aws secretsmanager put-secret-value --secret-id creatorfarm/prod/database-url --secret-string "postgresql://creatorfarm:<wachtwoord>@<database_endpoint>:5432/creatorfarm?sslmode=require"
+   aws secretsmanager put-secret-value --secret-id creatorfarm/prod/redis-url --secret-string "rediss://<redis_endpoint>:6379"
+   ```
+   Het databasewachtwoord staat in het door RDS beheerde secret (output `database_master_secret_arn`).
+6. **DNS**: het domein naar de output `load_balancer_dns` laten wijzen.
+7. **GitHub-variabelen** voor de deploy:
+   - `AWS_DEPLOY_ROLE_ARN`, `AWS_REGION`, `ECS_CLUSTER`, `ECS_NETWORK_CONFIG` (outputs);
+   - environment `production` met verplichte reviewers;
+   - private images in GHCR: een PAT met `read:packages` als secret, met de ARN in `registry_credentials_secret_arn`.
+8. **Images en migraties**: push naar `main` → *Release* → *deploy* (migraties via de `creator-farm-migrate`-taak; nooit `migrate reset` of `db push` in productie).
+9. **Seed** (eenmalig, vanaf een beheerhost met toegang tot de database):
    ```bash
    DATABASE_URL=… SEED_OWNER_EMAIL=jij@bedrijf.nl SEED_OWNER_PASSWORD='…' SEED_MONTHLY_BUDGET_EUR=500 pnpm db:seed
    ```
-   Dit maakt de owner, het providerregister, veilige standaardlimieten en de starterprompts aan. Gebruik **niet** `--demo` in productie.
-6. **Services** starten: `web`, `worker-scheduler`, `worker-generation`, `worker-media`, `worker-publishing`.
-7. **Controle**: `GET /api/health` = 200; Workflow Monitor toont vier levende worker-rollen.
+   Dit maakt aan:
+   - de owner;
+   - het providerregister;
+   - veilige standaardlimieten (minimale steekproef 30, autopilot uit);
+   - de starterprompts.
+   Gebruik **niet** `--demo` in productie.
+10. **Eerste aanmelding**: de owner stelt tweestapsverificatie in (verplicht) en bewaart de herstelcodes.
+11. **Controle**:
+    - `GET /api/health` geeft 200;
+    - de Workflow Monitor toont vier levende worker-rollen;
+    - geen alarmen;
+    - de alarmtest uit `docs/runbooks/alarms.md` (`set-alarm-state`) is uitgevoerd.
 
 ## Releases
 
@@ -80,50 +122,24 @@ Volledige lijst met uitleg: `.env.example`. Productie-eisen worden bij opstarten
 
 ## Monitoring en alerts
 
-CloudWatch-alarmen (minimaal):
-
-| Alarm | Drempel |
-|---|---|
-| ALB 5xx-ratio | > 2 % over 5 min |
-| `/api/health` faalt | 2 opeenvolgende checks |
-| Worker-taken onder minimum | < gewenste aantal gedurende 5 min |
-| Dead-letter-queue | > 0 nieuwe jobs (fase 10: metric vanuit scheduler) |
-| Wachtrij-achterstand `publishing` | > 50 jobs of oudste > 30 min |
-| RDS CPU / vrije opslag / verbindingen | 80 % / < 10 GB / 80 % |
-| Redis geheugen | > 75 % (`noeviction` ⇒ schrijffouten bij vol) |
-| Budget | 80 % en 100 % van maandlimiet (applicatiemelding + e-mail) |
-
-Logs: JSON naar CloudWatch Logs (30 dagen), auditdata blijft in de database. Traces: OTLP → collector → AWS X-Ray of een andere backend.
+- **Metrics.** De scheduler-worker schrijft elke minuut wachtrij- en farmmetrics in CloudWatch Embedded Metric Format (namespace `CreatorFarm`): wachtrij-achterstand, oudste wachttijd, levende workers per rol, dead letters, vastgelopen jobs, mislukte publicaties, budgetpauzes en accounts die opnieuw gekoppeld moeten worden.
+- **Autoscaling.** Workers schalen op wachtrij-achterstand per taak.
+- **Alarmen.** `infra/alarms.json` (applicatie) en `infra/terraform/alarms.tf` (ALB 5xx en latentie, gezonde taken, RDS, Redis-geheugen, WAF). Ze gaan naar SNS, en per alarm staat er een runbook in `docs/runbooks/alarms.md`. De alarmdefinities worden in CI getest (`observability.test.ts`).
+- **Logs.** JSON naar CloudWatch Logs (30 dagen, KMS). De audittrail staat in de database.
+- **Traces.** Elke job is een span en uitgaande provideraanroepen zijn child spans. Dit staat aan zodra `OTEL_EXPORTER_OTLP_ENDPOINT` gezet is (collector → X-Ray).
 
 ## Back-ups
 
 | Bron | Maatregel |
 |---|---|
-| PostgreSQL | RDS automated backups met point-in-time recovery (35 dagen); dagelijkse snapshot-kopie naar `eu-west-1`; maandelijkse snapshot 12 maanden bewaard. |
-| S3 media | Versiebeheer aan; noncurrent versies 30 dagen; replicatie naar tweede regio voor goedgekeurde/gepubliceerde assets. |
-| Redis | AOF aan. Redis bevat geen bron-van-waarheid: na verlies worden jobs herbouwd uit de database (zie herstel). |
+| PostgreSQL | RDS automated backups met point-in-time recovery (35 dagen), gerepliceerd naar `eu-west-1` (14 dagen). |
+| S3 media | Versiebeheer aan; noncurrent versies 30 dagen; alle objecten gerepliceerd naar `eu-west-1`. |
+| Redis | Multi-AZ met snapshots (3 dagen). Redis bevat geen bron-van-waarheid: na verlies worden de wachtrijen herbouwd uit de database (`pnpm queues:rebuild`). |
 | Secrets | Secrets Manager met replicatie naar tweede regio. |
 
 ## Herstelprocedures
 
-**Database terugzetten (PITR)**
-1. Zet **All generation** en **All publishing** op pauze (Settings → Controls) of schaal workers naar 0.
-2. RDS → *Restore to point in time* naar een nieuwe instance.
-3. Verifieer: aantal rijen in `cost_ledger`, laatste `audit_logs`, laatste `publishing_jobs`.
-4. Wijzig `creatorfarm/prod/database-url` naar de nieuwe instance; herstart services (`force-new-deployment`).
-5. Vergelijk `publishing_jobs` met status `PUBLISHING/AWAITING_CONFIRMATION` met de platforms (remote status) vóór je publicatie hervat.
-6. Hervat de ketens; noteer de incident-ID in het auditlog via de pauzereden.
-
-**Redis verloren**
-1. Nieuwe ElastiCache-node, update `redis-url`, herstart workers.
-2. De scheduler-worker plant zijn onderhoudsjobs automatisch opnieuw in.
-3. Draai het herbouwscript (fase 5): alle DB-jobs in `QUEUED`/`RUNNING` worden opnieuw in de queue gezet met hun idempotency key; `RUNNING` generaties worden eerst via `getStatus()` bij de provider gecontroleerd.
-
-**Media-object kwijt** — herstel uit een vorige S3-versie; de checksum in `media_assets` verifieert de integriteit.
-
-**Credential gelekt** — roteer in Secrets Manager (provider-key: intrekken bij provider + nieuw secret); `AUTH_SECRET` roteren logt alle sessies uit; zet de betreffende provider op pauze tot rotatie bevestigd is.
-
-Herstelprocedures worden elk kwartaal geoefend op een staging-omgeving.
+Zie `docs/runbooks/restore.md`: database (PITR), Redis kwijt (`pnpm queues:rebuild`) en media. De herstelproef (`pnpm drill:restore`) en de uitkomsten staan in `docs/runbooks/drills.md`. Overige runbooks: `docs/runbooks/` (incident, alarmen, deploy, sleutels, toegang).
 
 ## Lokale ontwikkeling
 

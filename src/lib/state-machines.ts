@@ -57,8 +57,9 @@ export const contentTransitions: TransitionTable<ContentStatus> = {
 
 export const generationJobTransitions: TransitionTable<GenerationJobStatus> = {
   QUEUED: ["RUNNING", "CANCELLED", "BLOCKED_BUDGET", "BLOCKED_POLICY"],
-  // Budget and policy checks run inside the attempt, so a running job can end blocked.
-  RUNNING: ["SUCCEEDED", "FAILED", "CANCELLED", "BLOCKED_BUDGET", "BLOCKED_POLICY"],
+  // Budget and policy checks run inside the attempt, so a running job can end blocked. A job that
+  // hit our own per-provider request limit before anything was sent goes back to waiting.
+  RUNNING: ["SUCCEEDED", "FAILED", "CANCELLED", "BLOCKED_BUDGET", "BLOCKED_POLICY", "QUEUED"],
   FAILED: ["QUEUED", "DEAD_LETTER"],
   BLOCKED_BUDGET: ["QUEUED", "CANCELLED"],
   BLOCKED_POLICY: ["QUEUED", "CANCELLED"],

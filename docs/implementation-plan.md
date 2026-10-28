@@ -298,7 +298,64 @@ Elke fase eindigt met werkende functionaliteit, groene tests (unit, integratie, 
 
 **Inhoud** — MFA/SSO, algemene rate limiting, WAF, infrastructure-as-code, OpenTelemetry in workers, queue-metrics naar CloudWatch + autoscaling, dependency- en containerscans, load test (50 creators), herstelproef, runbooks, pentest.
 
-**Acceptatie** — herstelprocedure geoefend en gedocumenteerd; alarmen getest; load test zonder fouten op de doelbelasting.
+**Opgeleverd**
+- **MFA**:
+  - TOTP (RFC 6238, eigen implementatie op `node:crypto`), geheim versleuteld opgeslagen, elke code één keer geldig;
+  - 10 herstelcodes voor eenmalig gebruik;
+  - verplicht voor owner en admin in productie (`MFA_REQUIRED_ROLES`); tot de inrichting is alleen de instelpagina bereikbaar;
+  - aanmelden in twee stappen;
+  - reset door de owner, met reden en geaudit.
+- **SSO** (optioneel): OIDC met PKCE, state en nonce; alleen bestaande accounts met een geverifieerd e-mailadres; rollen blijven lokaal.
+- **Rate limiting** (Redis, gedeeld door alle webinstanties): acties per gebruiker, API-routes per adres, tweestapsverificatie per account.
+- **Security headers**: CSP, COOP en de bestaande headers.
+- **WAF** (AWS WAF op de ALB):
+  - beheerde regels: IP-reputatie, common, known bad inputs, SQLi;
+  - rate rules: 2.000 per 5 minuten, en 100 inlogpogingen per 5 minuten;
+  - logging met cookies en autorisatieheaders weggelaten.
+- **Infrastructure-as-code** (`infra/terraform`, `eu-central-1`, met DR in `eu-west-1`):
+  - VPC met private subnets en NAT per AZ, flow logs;
+  - RDS PostgreSQL 16 (Multi-AZ, PITR 35 dagen, backups gerepliceerd, KMS, `force_ssl`);
+  - ElastiCache Redis (TLS, `noeviction`, Multi-AZ);
+  - S3 (versiebeheer, KMS, replicatie, TLS-only);
+  - Secrets Manager (leeg aangemaakt, gerepliceerd);
+  - ECS Fargate met autoscaling op wachtrij-achterstand per taak, circuit-breaker-rollback, scheduler nooit dubbel;
+  - ALB met TLS 1.2+;
+  - alarmen naar SNS;
+  - deployrol via GitHub OIDC.
+  `terraform validate` slaagt; Checkov: 250 checks geslaagd, 0 gefaald, 28 bewust overgeslagen met reden.
+- **Observability**:
+  - OpenTelemetry-span per job; provideraanroepen als child spans;
+  - de scheduler publiceert elke minuut wachtrij- en farmmetrics (CloudWatch EMF, zonder SDK);
+  - 8 applicatie-alarmen in `infra/alarms.json`, gedeeld door Terraform en de alarmtest, plus infra-alarmen (ALB, RDS, Redis, WAF).
+- **Scans in CI**:
+  - `pnpm audit` (5 bevindingen in afhankelijkheden opgelost);
+  - Trivy op de images;
+  - gitleaks over de git-historie;
+  - CodeQL;
+  - Checkov;
+  - Terraform fmt en validate;
+  - Dependabot.
+- **Herstel**:
+  - `pnpm queues:rebuild` herbouwt de wachtrijen uit de database na verlies van Redis; lopende betaalde stappen worden nooit blind opnieuw uitgevoerd;
+  - `pnpm drill:restore`: back-up → nieuwe database → 12 controles → wachtrijen herbouwen.
+- **Load test** (`pnpm test:load`): 50 creators en een volle dag door de echte wachtrijen en workers, plus webbelasting.
+- **Runbooks** (`docs/runbooks/`): incident, alarmen (per alarm), herstel, deploy en rollback, sleutels, toegang, drill-logboek.
+- **Securityreview** (`docs/security-review.md`): ASVS L2-review met bewijs per beheersmaatregel.
+  - F1 (rate limit liet stappen falen, gevonden door de load test) en F2 (kwetsbare afhankelijkheden) zijn opgelost.
+  - Drie restrisico's zijn bewust geaccepteerd.
+  - Een externe pentest staat nog open.
+
+**Acceptatie** — aangetoond:
+- [x] **Herstelprocedure geoefend en gedocumenteerd.**
+  - De drill slaagt op de data van de load test: identieke rijen, constraints, triggers, migraties en vingerafdrukken; audittrail blijft append-only; mediachecksums kloppen; wachtrijen herbouwd.
+  - Procedure in `docs/runbooks/restore.md`, uitkomst in `drills.md`.
+  - De RDS-variant op staging volgt na de eerste deploy.
+- [x] **Alarmen getest.**
+  - De alarmtest injecteert elke storing; precies het bijbehorende alarm gaat af, met de juiste dimensie. Op een gezonde farm gaat er niets af.
+  - Terraform maakt de alarmen uit dezelfde definities.
+  - De test in AWS (`set-alarm-state`) staat in de runbook voor na de eerste deploy.
+- [x] **Load test zonder fouten op de doelbelasting**: 300/300 geproduceerd, 300/300 gepubliceerd zonder duplicaten, 300 statistieken, 0 mislukte jobs; dashboard met 10 gelijktijdige gebruikers: 0 fouten, p95 745 ms.
+- [ ] Externe pentest — open actie vóór livegang.
 
 ## Definition of Done (platform)
 

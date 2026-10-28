@@ -22,7 +22,15 @@
 - `src/server/auth/credentials.ts`: Zod-validatie → rate limit (`LOGIN_MAX_ATTEMPTS` per `LOGIN_WINDOW_SECONDS`) → constant-time vergelijking (ook bij onbekende e-mail via dummy-hash) → audit.
 - Middleware beschermt alle pagina's; API-routes doen hun eigen check en geven `401`.
 - Uitloggen wordt geaudit.
-- **Gepland (fase 10):** TOTP-MFA voor owner/admin of OIDC-SSO (bijv. Google Workspace/Entra) met verplichte MFA.
+- **Tweestapsverificatie** (TOTP, RFC 6238):
+  - verplicht voor de rollen in `MFA_REQUIRED_ROLES` (productie: owner en admin); tot de inrichting is alleen de instelpagina bereikbaar;
+  - geheim versleuteld (AES-256-GCM, `APP_ENCRYPTION_KEY`), elke code één keer geldig;
+  - 10 herstelcodes voor eenmalig gebruik, opgeslagen als HMAC;
+  - mislukte codes tellen mee in de inloglimiet;
+  - de owner kan een ander account resetten (met reden, geaudit).
+- **Single sign-on** (optioneel, OIDC met PKCE/state/nonce):
+  - alleen voor bestaande, ingeschakelde accounts met geverifieerd e-mailadres; maakt nooit accounts aan; rollen blijven lokaal;
+  - telt als tweede factor alleen met `OIDC_IDP_ENFORCES_MFA=true`.
 
 ## Autorisatie
 
@@ -73,7 +81,7 @@ Een admin die zo'n wijziging maakt, dient automatisch een verzoek in; aanscherpe
 - **Socialmediakoppelingen**:
   - OAuth-`state` is eenmalig (atomisch gelezen en verwijderd), verloopt na 10 minuten en hoort bij de gebruiker die de koppeling startte; PKCE (S256).
   - De callback accepteert alleen de vaste route; het mock-toestemmingsscherm stuurt alleen terug naar die route.
-  - Tokens staan alleen in de secret store: lokaal AES-256-GCM met de secretnaam als associated data, in productie AWS Secrets Manager onder `creatorfarm/prod/social/<id>` (IAM in `infra/aws/iam-social-secrets.json`).
+  - Tokens staan alleen in de secret store: lokaal AES-256-GCM met de secretnaam als associated data, in productie AWS Secrets Manager onder `creatorfarm/prod/social/<id>` (IAM in `infra/terraform/ecs.tf`).
   - Een nieuwe koppeling door een admin vereist goedkeuring door de owner; bij afwijzen of ontkoppelen worden de tokens verwijderd.
 - Mock-media kunnen nooit naar een echt account; dat wordt bij inplannen én bij publiceren gecontroleerd.
 - Rotatie: `AUTH_SECRET` roteren logt iedereen uit; provider-keys roteren in Secrets Manager, cache verloopt binnen 5 minuten.
@@ -95,19 +103,32 @@ Een admin die zo'n wijziging maakt, dient automatisch een verzoek in; aanscherpe
 ## Invoervalidatie en rate limiting
 
 - Zod op env, URL-filters (ongeldige waarden worden genegeerd, niet doorgegeven), server actions en (fase 3) promptvariabelen.
-- Login rate limiting in Redis. Fase 10: algemene rate limiting per gebruiker op muterende acties en op de upload-endpoint; AWS WAF met rate-based rules voor de load balancer.
+- Rate limiting in Redis, gedeeld door alle webinstanties:
+  - inloggen: 5 per 15 minuten per adres+account;
+  - muterende acties: 120 per minuut per gebruiker;
+  - API-routes: 300 per minuut per adres;
+  - tweestapsverificatie-instellingen: 10 per minuut per account.
+- AWS WAF voor de load balancer:
+  - beheerde regels (IP-reputatie, common, known bad inputs, SQLi);
+  - 2.000 verzoeken per 5 minuten per adres, en 100 inlogpogingen per 5 minuten.
+- Security headers: Content-Security-Policy (geen externe bronnen, `frame-ancestors 'none'`), HSTS, `nosniff`, `Referrer-Policy`, COOP.
 
 ## Privacy (AVG/GDPR)
 
 - **Dataminimalisatie** — persoonsgegevens beperken zich tot operators (naam, e-mail, IP in auditlog). Creators zijn fictief.
 - **Dataresidentie** — alle opslag in AWS `eu-central-1`. Voor elke AI-provider wordt vóór activatie vastgelegd: verwerkingslocatie, bewaartermijn van prompts/output, trainingsgebruik en verwerkersovereenkomst (DPA). Dit staat in `ai_providers.config.privacy`.
-- **Rechten van betrokkenen** — operatoraccounts kunnen worden uitgeschakeld; persoonsgegevens in auditlogs worden na de bewaartermijn geanonimiseerd (fase 10 taak).
+- **Rechten van betrokkenen** — operatoraccounts kunnen worden uitgeschakeld; het anonimiseren van persoonsgegevens in auditlogs na de bewaartermijn is nog niet geautomatiseerd (open actie; tot dan op verzoek handmatig).
 - **Referentiemateriaal** — uploads van echte personen (bijv. een model voor een product-shoot) alleen met registratie van toestemming en licentie in `rights_note`; zonder registratie geen gebruik als referentie.
 - **Analytics** — alleen geaggregeerde platformstatistieken via officiële API's; geen gegevens van individuele volgers.
 
 ## Back-ups en herstel
 
-Zie `deployment.md` § Back-ups. Samengevat: RDS automated backups + PITR (35 dagen), dagelijkse snapshot-kopie naar een tweede regio, S3-versiebeheer met lifecycle, Redis AOF (jobs zijn herbouwbaar uit de database). Herstelprocedure wordt elk kwartaal getest.
+Zie `deployment.md` § Back-ups en `docs/runbooks/restore.md`. Samengevat:
+- RDS automated backups met PITR (35 dagen), gerepliceerd naar `eu-west-1`;
+- S3-versiebeheer met replicatie;
+- wachtrijen zijn herbouwbaar uit de database (`pnpm queues:rebuild`).
+
+De herstelproef (`pnpm drill:restore`) is geoefend; zie `docs/runbooks/drills.md`. Zie ook de securityreview: `docs/security-review.md`.
 
 ## Securitytests
 
@@ -120,4 +141,14 @@ Geautomatiseerd (zie `tests/`):
 - env-validatie weigert dev-secrets/lokale opslag in productie;
 - e2e: anonieme redirect, viewer is read-only, security headers, health zonder lekken, media vereist authenticatie.
 
-Gepland: dependency-audit en container-scan in CI (fase 10), periodieke externe pentest vóór productie-livegang.
+- MFA (RFC-testvectoren, replay, herstelcodes, reset), SSO-toelating, rate limits, geen agentpad naar limieten of gebruikers.
+
+In CI bij elke wijziging:
+- `pnpm audit`;
+- Trivy op de images;
+- gitleaks op de git-historie;
+- CodeQL;
+- Checkov op Terraform en Dockerfile;
+- Terraform validate.
+
+Een externe pentest vóór productie-livegang staat bij de open acties.

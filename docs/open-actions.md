@@ -4,7 +4,7 @@ Acties voor de eigenaar die bewust zijn uitgesteld tot de laatste fase, als het 
 
 ## 1. Pull requests reviewen en mergen
 
-Fase 3–9 bevatten databasemigraties (`prompt_studio`, `provider_execution`, `content_factory`, `video_engine`, `publishing`, `autonomy`, `workflow_clock`, `analytics`); die worden bij deployment automatisch toegepast door de `migrate`-taak.
+Fase 3–10 bevatten databasemigraties (`prompt_studio`, `provider_execution`, `content_factory`, `video_engine`, `publishing`, `autonomy`, `workflow_clock`, `analytics`, `mfa`); die worden bij deployment automatisch toegepast door de `migrate`-taak.
 
 De fasen worden gestapeld opgeleverd: elke fase-branch bouwt voort op de vorige. Merge ze **in volgorde** en klik na elke merge op *Delete branch*: GitHub zet de basis van de volgende PR dan automatisch op `main` (anders handmatig: *Edit → base: main*).
 
@@ -18,6 +18,7 @@ De fasen worden gestapeld opgeleverd: elke fase-branch bouwt voort op de vorige.
 | 7 — Publishing | [#6](https://github.com/JelteBoelema/AI-model-farm/pull/6) | `phase-6-video-engine` | wacht op review (na #5) |
 | 8 — Autonomy | [#7](https://github.com/JelteBoelema/AI-model-farm/pull/7) | `phase-7-publishing` | wacht op review (na #6) |
 | 9 — Analytics | [#8](https://github.com/JelteBoelema/AI-model-farm/pull/8) | `phase-8-autonomy` | wacht op review (na #7) |
+| 10 — Production Readiness | #9 | `phase-9-analytics` | wacht op review (na #8) |
 
 Per PR: beschrijving lezen, de CI-checks moeten groen zijn, eventueel lokaal draaien (`README.md` → *Snel starten*), dan *Merge*.
 
@@ -34,7 +35,7 @@ App review bij Meta kan weken duren. De stappen (namen van permissies en scherme
 7. App-ID en app-secret **niet** delen in chat of code: opslaan in AWS Secrets Manager (`creatorfarm/prod/meta-app`); het platform leest ze via die referentie.
 8. In de omgevingsinstellingen van Claude Code `developers.facebook.com` (en eventueel `graph.instagram.com`) toestaan, zodat ik endpoints, permissienamen en limieten kan verifiëren voordat de echte adapter aangaat.
 9. Productie op **S3-opslag** (staat al in het deploymentplan): Instagram haalt media zelf op via tijdelijk ondertekende URL's; met lokale opslag kan dat niet.
-10. IAM-rechten voor tokenopslag toepassen (`infra/aws/iam-social-secrets.json`) en per creator **publicatieslots** invullen (weekdag + tijd), zodat bulkplanning en de kalender werken.
+10. Per creator **publicatieslots** invullen (weekdag + tijd), zodat bulkplanning en de kalender werken.
 
 ## 3. AI-providers live zetten (na fase 4)
 
@@ -70,6 +71,27 @@ Zonder deze stappen draait alles op de gelabelde mockproviders; betaalde generat
    - de seed zet 30 posts per vergeleken groep; bestaande installaties hebben geen waarde (leeg), en dan stuurt analytics de planning nooit;
    - lager zetten is een versoepeling en vraagt de owner.
 3. De echte statistiekenadapter voor Instagram wordt samen met de publicatie-adapter geactiveerd en geverifieerd. Tot die tijd zijn alle statistieken mock- of demodata en staan ze zo gelabeld.
+
+## 6. Productie-installatie (na fase 10)
+
+Volg `docs/deployment.md` → *Eerste installatie*. Wat jij moet doen of aanleveren:
+1. **AWS-account** in Frankfurt met:
+   - een S3-bucket en een DynamoDB-tabel voor de Terraform-state;
+   - een ACM-certificaat voor het domein;
+   - de GitHub OIDC-provider.
+2. **Domeinnaam** en een **alarm-e-mailadres**: invullen in `infra/terraform/production.tfvars` (voorbeeld staat ernaast). Daarna `terraform apply`, en de SNS-e-mail bevestigen.
+3. **Secrets vullen** met de AWS CLI: app-sleutels, database-URL, Redis-URL en de API-sleutels uit sectie 3.
+4. **GitHub**:
+   - de variabelen voor de deploy (outputs van Terraform);
+   - de environment `production` met jou als verplichte reviewer;
+   - bij private images een token voor GHCR.
+5. **Eerste aanmelding**: tweestapsverificatie instellen en de herstelcodes veilig bewaren. Zet bij voorkeur een tweede owner-account op (een owner kan zijn eigen 2FA niet resetten).
+6. **Na de eerste deploy**:
+   - de alarmtest in AWS (`docs/runbooks/alarms.md`) en de RDS-herstelproef op staging (`docs/runbooks/restore.md`), en de uitkomst vastleggen in `docs/runbooks/drills.md`;
+   - de load test herhalen op staging met 2 webtaken.
+7. **Externe pentest** laten uitvoeren vóór de livegang (scope en bevindingen tot nu toe: `docs/security-review.md`).
+8. Optioneel: **single sign-on** (Terraform-variabele `oidc` en het secret `oidc-client-secret`; zie `docs/runbooks/access.md`).
+9. Later: **het anonimiseren van persoonsgegevens in auditlogs** na de bewaartermijn automatiseren (nu op verzoek handmatig).
 
 ## Overige configuratie (staat al in de documentatie)
 

@@ -478,3 +478,17 @@ export async function runPublishJob(data: PublishJobData, attemptsMade: number, 
 export const publishingProcessors = {
   "publish.run": (job: Job<PublishJobData>, signal: AbortSignal) => runPublishJob(job.data, job.attemptsMade, signal),
 };
+
+/**
+ * After Redis was lost: queued publications go back on the queue; ones that were being published
+ * are verified with the platform first (AWAITING_CONFIRMATION), never re-sent blindly.
+ */
+export async function requeuePublishing(now = new Date()) {
+  const tag = `rebuild${now.getTime()}`;
+  const queued = await db.publishingJob.findMany({ where: { status: "QUEUED" }, select: { id: true } });
+  for (const j of queued) await queuePublish(j.id, tag);
+  const inFlight = await db.publishingJob.updateMany({ where: { status: "PUBLISHING" }, data: { status: "AWAITING_CONFIRMATION", lastError: { code: "QUEUE_LOST", message: "Outcome unknown after the job queue was lost; verifying with the platform" } } });
+  const verify = await db.publishingJob.findMany({ where: { status: "AWAITING_CONFIRMATION" }, select: { id: true } });
+  for (const j of verify) await queuePublish(j.id, `reconcile${tag}`);
+  return { queued: queued.length, verifying: verify.length, wasPublishing: inFlight.count };
+}

@@ -14,7 +14,7 @@ export default async function UsersPage() {
   const users = await db.user.findMany({
     where: { isSystem: false },
     orderBy: [{ disabledAt: "asc" }, { createdAt: "asc" }],
-    select: { id: true, name: true, email: true, role: true, disabledAt: true, lastLoginAt: true },
+    select: { id: true, name: true, email: true, role: true, disabledAt: true, lastLoginAt: true, mfaEnabledAt: true },
   });
 
   return (
@@ -32,12 +32,14 @@ export default async function UsersPage() {
         <UserTable
           currentUserId={user.id}
           canManage={canManage}
+          isOwner={user.role === "OWNER"}
           users={users.map((u) => ({
             id: u.id,
             name: u.name,
             email: u.email,
             role: u.role,
             disabled: u.disabledAt !== null,
+            mfa: u.mfaEnabledAt !== null,
             lastLogin: formatDateTime(u.lastLoginAt),
           }))}
         />

@@ -1,10 +1,12 @@
-// Bundles the worker entrypoint into dist/worker/main.mjs. Dependencies stay external and are
+// Bundles the worker entrypoint into dist/worker/main.mjs (and the queue rebuild, used after a Redis
+// loss, into dist/worker/rebuild.mjs). Dependencies stay external and are
 // installed in the image; only our own source (incl. "@/..." path aliases) is bundled.
 import { build } from "esbuild";
 
 await build({
-  entryPoints: ["src/workers/main.ts"],
-  outfile: "dist/worker/main.mjs",
+  entryPoints: { main: "src/workers/main.ts", rebuild: "scripts/rebuild-queues.ts" },
+  outdir: "dist/worker",
+  outExtension: { ".js": ".mjs" },
   bundle: true,
   platform: "node",
   target: "node22",
