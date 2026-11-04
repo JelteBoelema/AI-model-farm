@@ -62,7 +62,7 @@
     "next": "15.5.28",
     "next-auth": "5.0.0-beta.32",
     "pino": "^10.4.0",
-    "prisma": "6.19.3",
+    "prisma": "7.10.1",
     "react": "^19.2.9",
     "react-dom": "^19.2.9",
     "server-only": "^0.0.1",
