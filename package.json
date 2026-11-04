@@ -51,7 +51,7 @@
     "@radix-ui/react-tooltip": "^1.4.1",
     "@vercel/otel": "1.14.2",
     "bcryptjs": "^3.0.3",
-    "bullmq": "5.81.5",
+    "bullmq": "6.5.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
